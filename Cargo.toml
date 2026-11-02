@@ -26,6 +26,21 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.11", features =
 mlua = { version = "0.12.2", features = ["lua54", "vendored", "send"] }
 thiserror = "2"
 anyhow = "1"
+blake3 = "1.8"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+rusqlite = { version = "0.41", features = ["bundled"] }
+rstar = "0.14"
+crossbeam-channel = "0.5"
+csv = "1.4"
+toml = "1.1"
+directories = "6"
+tracing = "0.1"
+
+# Dev / test
+proptest = "1.12"
+tempfile = "3.27"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

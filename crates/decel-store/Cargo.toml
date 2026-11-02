@@ -12,6 +12,20 @@ rust-version.workspace = true
 
 [dependencies]
 decel-model.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+proptest.workspace = true
+tempfile.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "txn"
+harness = false
 
 [lints]
 workspace = true

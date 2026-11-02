@@ -392,6 +392,13 @@ CREATE TABLE other_changes (                         -- sheets, layout, charts, 
 ) WITHOUT ROWID;
 ```
 
+Implementation notes (Phase 1):
+
+- `workbook` keys: `created`, `app_version`, the monotonic id counters `next_sheet_id` and `next_chart_id` (ids are never reused, so undo can recreate a deleted sheet or chart under its old id), and user settings as `settings.<key>`. Settings are written outside the undo history.
+- `charts.spec` holds the whole chart record as JSON: the anchor cell (`row`, `col`) plus the chart's own spec.
+- `other_changes.entity` keys are `sheet:<id>`, `layout:<sheet>:<axis>:<idx>`, `chart:<id>` and `structure`.
+- SQLite's automatic WAL checkpoint is raised to a large safety threshold, because a checkpoint during a commit costs ~200 ms. The engine checkpoints explicitly when idle.
+
 Structural operations (insert or delete rows and columns) are stored as one `other_changes` record (`{"op":"insert_rows","sheet":1,"at":10,"n":3}`) plus `cell_changes` for any cells deleted. Their inverse is calculated, not stored.
 
 ### 7.3 Undo and redo semantics
