@@ -126,3 +126,13 @@ Setup: `decel-cli demo /tmp/demo.decel` and open it.
 - [ ] **Restore this version** sets the cell back to that version. `Ctrl+Z` then returns it to how it was before the restore.
 - [ ] The undo history lists done actions (current one marked) and undone actions (italic). Clicking an entry undoes or redoes to that point, and the start entry undoes everything.
 - [ ] The status bar shows `Undo: …` / `Redo: …` and the last action.
+
+## Phase 7 — Sheets & structure
+
+- [ ] **+** (or `Shift+F11`) adds a sheet and switches to it. Double-clicking a tab renames it inline (`Enter` commits, `Esc` cancels). Dragging a tab onto another moves it there. **✕** on the active tab asks for confirmation before deleting. Each of these can be undone.
+- [ ] A cell using `c:sheet_named("Inputs")` shows a `#REF` error after renaming Inputs to Params, and recovers when it's renamed back.
+- [ ] Select rows 3–4 by their headers and press `Ctrl+Shift+=` (or `Ctrl++`): two blank rows are inserted and everything below moves down. `Ctrl+-` deletes the selected rows. Selecting whole columns does the same for columns.
+- [ ] Inserting 3 rows inside a 500-row running total keeps the totals above the gap. Below the gap they restart, because `c:up()` sees the blank row (as defined in §4.8).
+- [ ] Column widths, row heights and chart anchors move with insertions and deletions.
+- [ ] After two row inserts above an edited cell, its History (`F5`) still lists every earlier version.
+- [ ] Peek's legend counts cells on this sheet, with "+N elsewhere" for other sheets.

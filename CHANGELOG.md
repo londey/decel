@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 7 — Sheets & structure
+
+#### Added
+
+- Sheet tabs: add, inline rename, drag to reorder, delete with confirmation (all undoable).
+- Insert/delete rows and columns at the selection (`Ctrl+Shift+=` / `Ctrl+-`); cells, layout,
+  chart anchors and history coordinates shift with them. Absolute `c:at()` is not rewritten.
+- Engine tests for inserting inside a 500-row running total and deleting rows inside range
+  dependencies; `testkit::Wb::structure`.
+
+#### Fixed
+
+- A full display snapshot now replaces stale cached cells (seen after structural edits).
+
 ### Phase 6 — History UI
 
 #### Added

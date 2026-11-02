@@ -47,6 +47,9 @@ actions!(
         PasteMeta,
         NewMetaOnSelection,
         ToggleHistory,
+        AddSheet,
+        InsertCells,
+        DeleteCells,
     ]
 );
 
@@ -87,6 +90,11 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f3", ToggleCodeSide, None),
         KeyBinding::new("f4", ToggleDock, None),
         KeyBinding::new("f5", ToggleHistory, None),
+        KeyBinding::new("shift-f11", AddSheet, None),
+        KeyBinding::new("ctrl-shift-=", InsertCells, g),
+        KeyBinding::new("ctrl-+", InsertCells, g),
+        KeyBinding::new("ctrl-shift-+", InsertCells, g),
+        KeyBinding::new("ctrl--", DeleteCells, g),
         KeyBinding::new("ctrl-shift-b", ToggleBoundaries, None),
         KeyBinding::new("ctrl-shift-m", NewMetaOnSelection, None),
         KeyBinding::new("ctrl-d", FillDown, g),

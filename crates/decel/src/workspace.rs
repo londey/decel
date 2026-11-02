@@ -207,6 +207,10 @@ pub struct Workspace {
     pub(crate) _event_task: Task<()>,
     pub(crate) _keys: Subscription,
     pub(crate) dock: Dock,
+    pub(crate) renaming: Option<crate::sheets::Renaming>,
+    pub(crate) confirm_delete: Option<SheetId>,
+    /// Switch to the sheet with this name when it appears (after Add sheet).
+    pub(crate) switch_to_name: Option<String>,
     pub(crate) dock_tab: DockTab,
     pub(crate) history: crate::history::HistoryState,
     pub(crate) dock_sync_pending: bool,
@@ -279,14 +283,17 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         let keys = cx.intercept_keystrokes(move |ev, window, cx| {
             let Some(ws) = weak.upgrade() else { return };
-            let (editing, dock_focused) = {
+            let (editing, dock_focused, renaming) = {
                 let w = ws.read(cx);
                 (
                     w.edit.is_some(),
                     w.dock.open && w.dock.editor.read(cx).focus_handle(cx).is_focused(window),
+                    w.renaming.is_some(),
                 )
             };
-            let handled = if editing {
+            let handled = if renaming {
+                ws.update(cx, |ws, cx| ws.on_rename_key(&ev.keystroke, window, cx))
+            } else if editing {
                 ws.update(cx, |ws, cx| ws.on_editor_key(&ev.keystroke, window, cx))
             } else if dock_focused {
                 ws.update(cx, |ws, cx| ws.on_dock_key(&ev.keystroke, window, cx))
@@ -330,6 +337,9 @@ impl Workspace {
             _event_task: event_task,
             _keys: keys,
             dock: Dock::new(window, cx),
+            renaming: None,
+            confirm_delete: None,
+            switch_to_name: None,
             dock_tab: DockTab::Metatable,
             history: Default::default(),
             dock_sync_pending: false,
@@ -395,18 +405,18 @@ impl Workspace {
                 }
             }
             Event::CellsUpdated {
+                sub,
                 sheet,
-                rect,
                 full,
                 cells,
                 ..
             } => {
-                if Some(sheet) != self.sheet {
+                if sub != GRID_SUB || Some(sheet) != self.sheet {
                     return;
                 }
-                if full && let Some(r) = rect {
-                    self.cache
-                        .retain(|a, _| a.sheet == sheet && r.contains(a.row, a.col));
+                // A full snapshot replaces everything we had for the sheet.
+                if full {
+                    self.cache.retain(|a, _| a.sheet != sheet);
                 }
                 for (a, d) in cells {
                     self.cache.insert(a, d);
@@ -437,7 +447,15 @@ impl Workspace {
     }
 
     fn on_workbook(&mut self, info: WorkbookInfo, window: &mut Window, cx: &mut Context<Self>) {
-        let sheet = match self.sheet {
+        let wanted = self
+            .switch_to_name
+            .as_ref()
+            .and_then(|n| info.sheets.iter().find(|s| &s.name == n))
+            .map(|s| s.id);
+        if wanted.is_some() {
+            self.switch_to_name = None;
+        }
+        let sheet = match wanted.or(self.sheet) {
             Some(s) if info.sheets.iter().any(|i| i.id == s) => s,
             _ => match info.sheets.first() {
                 Some(s) => s.id,
@@ -1686,30 +1704,8 @@ impl Workspace {
             .border_t_1()
             .border_color(theme.border)
             .bg(theme.secondary);
-        if let Some(info) = &self.info {
-            for s in &info.sheets {
-                let id = s.id;
-                let active = Some(id) == self.sheet;
-                row = row.child(
-                    div()
-                        .id(SharedString::from(format!("tab-{}", id.0)))
-                        .px_3()
-                        .h_full()
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .when(active, |d| {
-                            d.bg(theme.background)
-                                .border_b_2()
-                                .border_color(theme.primary)
-                        })
-                        .child(s.name.clone())
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.switch_sheet(id, window, cx);
-                        })),
-                );
-            }
-        }
+        row = row.child(self.render_sheet_tabs(cx));
+        let theme = cx.theme();
         let status = &self.status;
         let recalc = if status.pending > 0 {
             format!("⟳ {}", status.pending)
@@ -2067,6 +2063,13 @@ impl Render for Workspace {
                     this.toggle_dock(window, cx);
                 }
             }))
+            .on_action(cx.listener(|this, _: &AddSheet, _, cx| this.add_sheet(cx)))
+            .on_action(
+                cx.listener(|this, _: &InsertCells, _, cx| this.structure_at_selection(false, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &DeleteCells, _, cx| this.structure_at_selection(true, cx)),
+            )
             .on_action(cx.listener(|this, _: &ToggleHistory, _, cx| {
                 if this.dock.open && this.dock_tab == DockTab::History {
                     this.dock.open = false;

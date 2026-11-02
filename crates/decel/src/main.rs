@@ -11,6 +11,7 @@ mod grid;
 mod history;
 mod palette;
 mod recent;
+mod sheets;
 mod sizes;
 mod workspace;
 

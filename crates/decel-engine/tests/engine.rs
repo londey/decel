@@ -468,3 +468,84 @@ fn where_kind_filters() {
     );
     assert_eq!(wb.value(4, 1), Value::Int(40));
 }
+
+fn fresh_values(wb: &mut Wb, rows: u32, col: u32) -> Vec<Value> {
+    let mut fresh =
+        decel_engine::Engine::new(wb.engine.workbook().clone(), Limits::default()).unwrap();
+    fresh.recalc_all();
+    (1..=rows)
+        .map(|r| fresh.final_value(wb.addr(r, col)))
+        .collect()
+}
+
+#[test]
+fn inserting_rows_inside_running_total_keeps_totals_correct() {
+    let mut wb = Wb::new();
+    for r in 1..=500 {
+        wb.set(r, 1, 1);
+    }
+    wb.fill_meta(1, 500, 2, &running_total());
+    assert_eq!(wb.value(500, 2), Value::Int(500));
+    // Insert 3 blank rows before row 201 (0-based 200).
+    wb.structure(decel_model::StructOp::InsertRows {
+        sheet: wb.sheet,
+        at: 200,
+        n: 3,
+    });
+    wb.recalc();
+    // Above the gap: unchanged. The gap is empty. Below it, c:up() sees a
+    // blank row (no kind), so the total restarts from that row's amount.
+    assert_eq!(wb.value(200, 2), Value::Int(200));
+    for r in 201..=203 {
+        assert_eq!(wb.value(r, 2), Value::Nil);
+    }
+    assert_eq!(wb.value(204, 2), Value::Int(1));
+    assert_eq!(wb.value(503, 2), Value::Int(300));
+    // Incremental equals a fresh full recalculation.
+    let incremental: Vec<Value> = (1..=503).map(|r| wb.value(r, 2)).collect();
+    assert_eq!(incremental, fresh_values(&mut wb, 503, 2));
+}
+
+#[test]
+fn deleting_a_row_in_a_range_dependency_recalculates() {
+    let mut wb = Wb::new();
+    for r in 1..=10 {
+        wb.set(r, 1, i64::from(r));
+    }
+    wb.meta(12, 1, &meta().with("value", "return c:above():sum()"));
+    wb.meta(12, 2, &meta().with("value", "return c:offset(0, -1).value"));
+    assert_eq!(wb.value(12, 1), Value::Int(55));
+    wb.structure(decel_model::StructOp::DeleteRows {
+        sheet: wb.sheet,
+        at: 4, // row 5 (value 5)
+        n: 1,
+    });
+    // The total moved up to row 11 and lost the 5.
+    assert_eq!(wb.value(11, 1), Value::Int(50));
+    assert_eq!(wb.value(11, 2), Value::Int(50));
+    assert_eq!(wb.value(12, 1), Value::Nil);
+    // Delete a column left of a relative reference: it still points left.
+    wb.set(11, 4, 7);
+    wb.meta(11, 5, &meta().with("value", "return c:left().value"));
+    wb.structure(decel_model::StructOp::DeleteCols {
+        sheet: wb.sheet,
+        at: 2, // column 3 (empty)
+        n: 1,
+    });
+    assert_eq!(wb.value(11, 4), Value::Int(7));
+}
+
+#[test]
+fn absolute_at_is_not_rewritten_by_structure_ops() {
+    let mut wb = Wb::new();
+    wb.set(1, 1, 5).set(2, 1, 9);
+    wb.meta(5, 2, &meta().with("value", "return c:at(1, 1).value"));
+    assert_eq!(wb.value(5, 2), Value::Int(5));
+    wb.structure(decel_model::StructOp::InsertRows {
+        sheet: wb.sheet,
+        at: 0,
+        n: 1,
+    });
+    // c:at(1,1) still means row 1, which is now blank (DESIGN §7, documented).
+    assert_eq!(wb.value(6, 2), Value::Nil);
+}

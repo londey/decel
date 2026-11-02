@@ -175,6 +175,35 @@ impl Wb {
         }]);
     }
 
+    /// Applies a structural op the way the store records it: clears of a
+    /// deleted span first, then the shift.
+    pub fn structure(&mut self, op: decel_model::StructOp) -> &mut Self {
+        let mut changes = Vec::new();
+        if op.is_delete() {
+            let (at, n) = op.span();
+            let sheet = op.sheet();
+            if let Some(s) = self.engine.workbook().sheet(sheet) {
+                use decel_model::CellStorage as _;
+                for ((r, c), cell) in s.cells.iter() {
+                    let idx = match op.axis() {
+                        decel_model::Axis::Row => r,
+                        decel_model::Axis::Col => c,
+                    };
+                    if idx >= at && idx < at + n {
+                        changes.push(Change::Cell {
+                            addr: CellAddr::new(sheet, r, c),
+                            before: cell.clone(),
+                            after: Cell::EMPTY,
+                        });
+                    }
+                }
+            }
+        }
+        changes.push(Change::Structure(op));
+        self.engine.apply(&changes);
+        self
+    }
+
     pub fn recalc(&mut self) -> &mut Self {
         self.engine.recalc_all();
         self
