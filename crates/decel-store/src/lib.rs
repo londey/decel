@@ -776,10 +776,15 @@ fn read_txn(conn: &Connection, id: TxnId) -> Result<TxnInfo, StoreError> {
 
 /// Follows undo/redo targets back to the original action's label.
 fn origin_label(conn: &Connection, mut id: TxnId) -> Result<String, StoreError> {
+    // Targets always point to earlier txns; a file where they don't is
+    // corrupt (and following it could loop forever).
     loop {
         let info = read_txn(conn, id)?;
         match (info.kind, info.target) {
-            (TxnKind::Undo | TxnKind::Redo, Some(t)) => id = t,
+            (TxnKind::Undo | TxnKind::Redo, Some(t)) if t < id => id = t,
+            (TxnKind::Undo | TxnKind::Redo, Some(_)) => {
+                return Err(StoreError::Corrupt("txn target is not earlier"));
+            }
             _ => return Ok(info.label),
         }
     }

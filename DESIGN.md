@@ -100,6 +100,7 @@ flowchart LR
   D -- no --> DF[default format]
 ```
 
+- **Blank text always clears** the raw value, even when the metatable has a `parse` hook (the hook isn't called).
 - **Default parser.** It tries, in order: empty text means clear the raw value; `true`/`false`; an integer; a float (`1e3`, `-0.5`, `1_000` and `1,000` are all accepted); otherwise a string. A leading `'` forces a string.
 - **The final value** is used by other cells, charts and display. It is `value(self, c)` when the metatable defines `value`. Otherwise it is `raw`.
 - **Validation** runs when you enter a value, against the parsed raw value. A failure rejects the edit and keeps the editor open with the message. `validate` also runs on computed values after recalculation. A failure there doesn't reject anything. It shows a **warning marker** (a corner triangle) with the message in the tooltip.
@@ -205,7 +206,7 @@ r:where_kind("latitude")   -- cells whose meta.kind matches
 r.rows, r.cols
 ```
 
-Ranges are recorded as **range dependencies**, not as one dependency per cell, so `c:above():sum()` stays cheap and also picks up cells added later.
+Ranges are recorded as **range dependencies**, not as one dependency per cell, so `c:above():sum()` stays cheap and also picks up cells added later. `sheet:last_row()` and `sheet:last_col()` depend on the whole sheet, so a cell that calls them recalculates after any change to that sheet. Prefer open-ended ranges such as `c:below()`.
 
 **Excluding self.** The helpers whose names describe "the rest of this column or row" (`column`, `row_range`, `above`, `below`, `left_of`, `right_of`) never include the evaluating cell. A "Total" cell at the bottom of a column can therefore use `c:column():sum()` without creating a cycle.
 
@@ -329,7 +330,7 @@ There's no formula parser, so dependencies are **recorded while code runs**:
 1. An edit transaction changes a set of cells.
 2. **Mark dirty.** Do a breadth-first walk over the direct edges plus range and name hits, transitively.
 3. **Evaluate on demand.** Evaluate each dirty cell. Reading a dirty dependency evaluates it first, recursively. An "in progress" stack detects cycles: every cell in the cycle gets `#CYCLE`.
-4. Each evaluation has an **instruction budget** (default 10 M VM instructions, enforced by a Lua hook) giving `#TIMEOUT`, and the VM has a **memory cap** (default 512 MiB) giving `#MEMORY`.
+4. Each evaluation has an **instruction budget** (default 10 M VM instructions, enforced by a Lua hook) giving `#TIMEOUT`, and the VM has a **memory cap** (default 512 MiB) giving `#MEMORY`. A 500 ms wall-clock limit per hook call is a safety net and also gives `#TIMEOUT`. `validate` isn't run on computed values that are `nil`. `#INVALID` (`ErrorKind::Validation`) is reserved: failed validation rejects the edit or adds a warning, and never becomes a cell value.
 5. Changed final values are sent to the UI for any subscribed (visible) cells.
 
 Evaluation never recurses through Lua. When a hook reads a dependency that hasn't been evaluated yet, the hook is interrupted (an interrupt `pcall` can't catch), the dependency is evaluated from an explicit work stack, and the hook is retried. Long chains such as a 500-row running total therefore never touch Lua's C-stack limit. A cycle is detected when the dependency is already on the stack, and exactly the stack slice from it to the top gets `#CYCLE`. A cell that reads a cycle member sees the error propagated (with its kind) but isn't itself marked as a member. Dirty cells are processed in row-major order, so top-down chains rarely need a retry.
@@ -534,7 +535,11 @@ The grid is a **custom GPUI element**, not a widget table:
 | Insert / delete row | `Ctrl+Shift+=` / `Ctrl+-` (with row selected) |
 | New / open / save as | `Ctrl+N` / `Ctrl+O` / `Ctrl+Shift+S` |
 
-The config lives at `$XDG_CONFIG_HOME/decel/config.toml` on Linux and `%APPDATA%\decel\config.toml` on Windows. It holds the keymap, theme, font, peek key, default column width, instruction budget and memory cap.
+The config lives at `$XDG_CONFIG_HOME/decel/config.toml` on Linux and `%APPDATA%\decel\config.toml` on Windows. Implemented keys: `theme` (`system`/`light`/`dark`), `font_family`, `font_size`, `peek_key`, `column_headers` (`numbers`/`letters`), `instruction_budget` and `memory_limit_mb`, plus a `[keymap]` table mapping command names (see `docs/user-guide.md`) to keystrokes. A default column width is post-v1.
+- The file is reloaded within about a second of being saved. An invalid file shows a banner and is otherwise ignored.
+- Keymap entries **add** bindings on top of the defaults; they don't remove them.
+- The engine limits apply to workbooks opened after the change.
+- With an ordinary cell selection, insert and delete act on whole rows spanning the selection. A whole-column selection acts on columns.
 
 ---
 

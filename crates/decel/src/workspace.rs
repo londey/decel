@@ -165,9 +165,6 @@ pub enum DockTab {
 /// Length of the code-side flip animation.
 pub const FLIP: Duration = Duration::from_millis(150);
 
-/// The key held for peek mode.
-pub const PEEK_KEY: &str = "`";
-
 pub enum Hit {
     Corner,
     ColHeader { col: u32, edge: Option<u32> },
@@ -208,6 +205,10 @@ pub struct Workspace {
     pub(crate) _event_task: Task<()>,
     pub(crate) _keys: Subscription,
     pub(crate) dock: Dock,
+    pub(crate) palette: Option<crate::palette_ui::Palette>,
+    pub(crate) config: crate::config::Config,
+    pub(crate) _config_task: Option<Task<()>>,
+    pub(crate) _appearance: Option<Subscription>,
     pub(crate) renaming: Option<crate::sheets::Renaming>,
     pub(crate) confirm_delete: Option<SheetId>,
     /// Switch to the sheet with this name when it appears (after Add sheet).
@@ -268,6 +269,8 @@ impl Workspace {
         engine: EngineHandle,
         events: UnboundedReceiver<Event>,
         open: Option<PathBuf>,
+        config: crate::config::Config,
+        config_error: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -287,15 +290,18 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         let keys = cx.intercept_keystrokes(move |ev, window, cx| {
             let Some(ws) = weak.upgrade() else { return };
-            let (editing, dock_focused, renaming) = {
+            let (editing, dock_focused, renaming, palette) = {
                 let w = ws.read(cx);
                 (
                     w.edit.is_some(),
                     w.dock.open && w.dock.editor.read(cx).focus_handle(cx).is_focused(window),
                     w.renaming.is_some(),
+                    w.palette.is_some(),
                 )
             };
-            let handled = if renaming {
+            let handled = if palette {
+                ws.update(cx, |ws, cx| ws.on_palette_key(&ev.keystroke, window, cx))
+            } else if renaming {
                 ws.update(cx, |ws, cx| ws.on_rename_key(&ev.keystroke, window, cx))
             } else if editing {
                 ws.update(cx, |ws, cx| ws.on_editor_key(&ev.keystroke, window, cx))
@@ -341,6 +347,10 @@ impl Workspace {
             _event_task: event_task,
             _keys: keys,
             dock: Dock::new(window, cx),
+            palette: None,
+            config: config.clone(),
+            _config_task: None,
+            _appearance: None,
             renaming: None,
             confirm_delete: None,
             switch_to_name: None,
@@ -363,6 +373,51 @@ impl Workspace {
             _activation: None,
         };
         this.init_dock(window, cx);
+        this.apply_config(window, cx);
+        if let Some(e) = config_error {
+            this.banner = Some(Banner::Error(format!("Config ignored: {e}")));
+        }
+        this._appearance = Some(cx.observe_window_appearance(window, |this, window, cx| {
+            if this.config.theme == crate::config::ThemeChoice::System {
+                gpui_component::Theme::sync_system_appearance(Some(window), cx);
+            }
+        }));
+        // Hot-reload config.toml.
+        this._config_task = Some(cx.spawn_in(window, async move |this, cx| {
+            let mut last = crate::config::modified();
+            loop {
+                cx.background_executor().timer(crate::config::POLL).await;
+                let now = crate::config::modified();
+                if now == last {
+                    continue;
+                }
+                last = now;
+                let (config, error) = crate::config::load();
+                let ok = this.update_in(cx, |this, window, cx| {
+                    match error {
+                        Some(e) => {
+                            this.banner = Some(Banner::Error(format!("Config ignored: {e}")))
+                        }
+                        None => {
+                            let bad = crate::actions::bind_keys(cx, &config.keymap);
+                            this.config = config;
+                            this.apply_config(window, cx);
+                            this.status.last = "Configuration reloaded".into();
+                            if !bad.is_empty() {
+                                this.banner = Some(Banner::Error(format!(
+                                    "Config: could not bind {}",
+                                    bad.join(", ")
+                                )));
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+                if ok.is_err() {
+                    break;
+                }
+            }
+        }));
         // Losing window focus releases peek and the share modifier.
         this._activation = Some(cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
@@ -912,7 +967,11 @@ impl Workspace {
             f.key_at = Some(Instant::now());
         }
         let k = &e.keystroke;
-        if k.key == PEEK_KEY && !k.modifiers.control && !k.modifiers.alt && self.edit.is_none() {
+        if k.key == self.config.peek_key
+            && !k.modifiers.control
+            && !k.modifiers.alt
+            && self.edit.is_none()
+        {
             if !self.peek {
                 self.peek = true;
                 self.load_legend();
@@ -962,6 +1021,42 @@ impl Workspace {
         });
     }
 
+    /// Applies theme, fonts and engine limits from the config.
+    pub(crate) fn apply_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::config::ThemeChoice;
+        use gpui_component::{Theme, ThemeMode};
+        match self.config.theme {
+            ThemeChoice::System => Theme::sync_system_appearance(Some(window), cx),
+            ThemeChoice::Light => Theme::change(ThemeMode::Light, Some(window), cx),
+            ThemeChoice::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+        }
+        let theme = Theme::global_mut(cx);
+        if let Some(f) = &self.config.font_family {
+            theme.font_family = f.clone().into();
+        }
+        if let Some(s) = self.config.font_size {
+            theme.font_size = px(s);
+        }
+        self.send(Command::SetLimits {
+            limits: self.config.limits(),
+        });
+        window.refresh();
+    }
+
+    fn detach_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(sheet) = self.sheet else { return };
+        let r = self.sel.rect();
+        if r.rows() * r.cols() > 1_000_000 {
+            return;
+        }
+        let targets = r
+            .iter()
+            .map(|(row, col)| CellAddr::new(sheet, row, col))
+            .collect();
+        self.send(Command::Detach { targets });
+        cx.notify();
+    }
+
     // -----------------------------------------------------------------------
     // Metatable tooling (Phase 5)
 
@@ -996,7 +1091,7 @@ impl Workspace {
     }
 
     fn on_key_up(&mut self, e: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        if e.keystroke.key == PEEK_KEY && self.peek {
+        if e.keystroke.key == self.config.peek_key && self.peek {
             self.peek = false;
             cx.notify();
         }
@@ -2129,6 +2224,16 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &AddSheet, _, cx| this.add_sheet(cx)))
             .on_action(
+                cx.listener(|this, _: &CommandPalette, window, cx| this.open_palette(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &DetachMeta, _, cx| this.detach_selection(cx)))
+            .on_action(cx.listener(|this, _: &OpenConfig, _, cx| {
+                if let Some(p) = crate::config::ensure_exists() {
+                    cx.open_with_system(&p);
+                    this.status.last = format!("Config: {}", p.display());
+                }
+            }))
+            .on_action(
                 cx.listener(|this, _: &ImportCsv, window, cx| this.prompt_import_csv(window, cx)),
             )
             .on_action(
@@ -2301,5 +2406,6 @@ impl Render for Workspace {
             .child(self.render_tabs(cx))
             .when_some(self.render_recent(cx), |d, r| d.child(r))
             .when_some(self.render_csv_dialog(cx), |d, r| d.child(r))
+            .when_some(self.render_palette(cx), |d, r| d.child(r))
     }
 }

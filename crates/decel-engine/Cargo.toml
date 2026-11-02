@@ -2,6 +2,8 @@
 name = "decel-engine"
 description = "Headless Lua evaluation engine for decel"
 readme = "../../README.md"
+keywords = ["spreadsheet", "decel", "lua", "recalculation"]
+categories = ["science"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -21,6 +23,7 @@ rstar.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 decel-io.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

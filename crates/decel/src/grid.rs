@@ -439,15 +439,14 @@ impl Element for GridElement {
                     size(px(ws.cols.size(c) as f32), px(HEADER_H as f32)),
                 );
                 let active = sel_rect.c1 <= c && c <= sel_rect.c2;
+                let name = if ws.config.column_headers == crate::config::ColumnHeaders::Letters {
+                    column_name(c)
+                } else {
+                    (u64::from(c) + 1).to_string()
+                };
                 (
                     b,
-                    shape(
-                        window,
-                        &(u64::from(c) + 1).to_string(),
-                        colors.header_text,
-                        None,
-                        &mono,
-                    ),
+                    shape(window, &name, colors.header_text, None, &mono),
                     active,
                 )
             })
@@ -715,6 +714,20 @@ impl Element for GridElement {
             window.request_animation_frame();
         }
     }
+}
+
+/// Spreadsheet-style column letters: 0 → A, 25 → Z, 26 → AA.
+pub fn column_name(mut col: u32) -> String {
+    let mut name = Vec::new();
+    loop {
+        name.push(b'A' + (col % 26) as u8);
+        if col < 26 {
+            break;
+        }
+        col = col / 26 - 1;
+    }
+    name.reverse();
+    String::from_utf8_lossy(&name).into_owned()
 }
 
 fn paint_outline(window: &mut Window, b: Bounds<Pixels>, w: Pixels, color: Hsla) {

@@ -373,7 +373,8 @@ impl Engine {
         };
         let mut deps = deps;
         let mut warning = None;
-        if !value.is_error() {
+        // Like the display hooks, validate never sees nil.
+        if !value.is_error() && !matches!(value, Value::Nil) {
             let (res, vdeps, _) = self.call(a, hash, "validate", Args::Value(&value), true, None);
             match res {
                 Some(Err(Fault::NeedDep(d))) => {
@@ -666,6 +667,11 @@ impl Engine {
     /// cell to commit; nothing is changed here.
     pub fn enter_text(&mut self, a: CellAddr, text: &str) -> Result<Cell, EditRejected> {
         let meta = self.core.cell(a).and_then(|c| c.meta);
+        // Blank text always clears the raw value (DESIGN §3.3), even with a
+        // `parse` hook.
+        if text.trim().is_empty() {
+            return Ok(Cell { raw: None, meta });
+        }
         let raw = match meta {
             Some(h) => {
                 let (r, _, _) = self.call_resolved(a, h, "parse", Args::Text(text), false, None);

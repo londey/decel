@@ -83,15 +83,27 @@ impl EngineHandle {
         let thread = std::thread::Builder::new()
             .name("decel-engine".into())
             .spawn(move || {
-                Actor {
-                    doc: None,
-                    subs: BTreeMap::new(),
-                    rx,
-                    events: etx,
-                    limits,
-                    wal_dirty: false,
+                let crash_tx = etx.clone();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    Actor {
+                        doc: None,
+                        subs: BTreeMap::new(),
+                        rx,
+                        events: etx,
+                        limits,
+                        wal_dirty: false,
+                    }
+                    .run()
+                }));
+                // An open SQLite transaction is rolled back when the store is
+                // dropped during unwinding, so the file stays intact.
+                if result.is_err() {
+                    let _ = crash_tx.send(Event::Error {
+                        message: "The engine stopped after an internal error. Your workbook \
+                                  file is intact: reopen it to continue. A crash log was written."
+                            .into(),
+                    });
                 }
-                .run()
             })?;
         Ok(Self {
             tx,
@@ -825,6 +837,10 @@ impl Actor {
                 let doc = self.doc()?;
                 doc.store.set_setting(&key, &value)?;
                 doc.engine.set_setting(&key, &value);
+                Ok(Reply::Done)
+            }
+            Command::SetLimits { limits } => {
+                self.limits = limits;
                 Ok(Reply::Done)
             }
             Command::Shutdown => Ok(Reply::Done),

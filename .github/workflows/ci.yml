@@ -72,3 +72,29 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo publish --workspace --dry-run
+
+  # Performance report against DESIGN §11. Informational: never fails the build.
+  bench:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux GPUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libx11-dev \
+            libfontconfig-dev libfreetype-dev libzstd-dev \
+            libvulkan-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Benches (store, engine)
+        run: cargo bench -p decel-store -p decel-engine -- --warm-up-time 1 --measurement-time 3 2>&1 | tee bench.txt
+      - name: Release-only tests (100k CSV import, hostile files)
+        run: cargo test --release -p decel-engine -- --include-ignored
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-report
+          path: bench.txt

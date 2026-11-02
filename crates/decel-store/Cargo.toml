@@ -2,6 +2,8 @@
 name = "decel-store"
 description = "SQLite-backed persistent store with history for decel"
 readme = "../../README.md"
+keywords = ["spreadsheet", "decel", "sqlite", "undo", "history"]
+categories = ["database"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

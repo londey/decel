@@ -9,3 +9,6 @@ architecture.pdf
 !.claude/skills/
 .claude/skills/synced
 /target
+
+# Generated example workbooks (see examples/README.md)
+examples/*.decel*

@@ -555,10 +555,11 @@ value.
 
 ### 14.1 The `[keymap]` table
 
-Each entry maps an **action name** (the names in the "Action" column of
+Each entry maps a **command name** (the names in the "Action" column of
 [the keyboard reference](#15-keyboard-reference)) to a keystroke. A keystroke is written as
 modifiers and a key joined by `-`, in lower case: `ctrl-`, `shift-`, `alt-`, then the key
-(`a`, `f2`, `enter`, `pageup`, `=`, `-`…).
+(`a`, `f2`, `enter`, `pageup`, `=`, `-`…). An entry adds a binding; the default binding
+keeps working too. Unknown names or keystrokes are reported in a banner.
 
 ```toml
 # ~/.config/decel/config.toml
@@ -571,17 +572,17 @@ instruction_budget = 20_000_000
 memory_limit_mb = 1024
 
 [keymap]
-CommandPalette = "ctrl-shift-p"
-FillDown = "ctrl-d"
-ToggleCodeSide = "f9"
-InsertChart = "ctrl-shift-c"
+command_palette = "ctrl-shift-p"
+fill_down = "ctrl-d"
+toggle_code_side = "f9"
+insert_chart = "ctrl-shift-c"
 ```
 
 ---
 
 ## 15. Keyboard reference
 
-These are the default bindings. The **Action** column is the name to use in
+These are the default bindings. The **Action** column is the command name to use in
 [`[keymap]`](#141-the-keymap-table). "Grid" means the binding applies while the grid has focus;
 "Global" means it works anywhere in the window.
 
@@ -589,12 +590,12 @@ These are the default bindings. The **Action** column is the name to use in
 
 | Action | Keys | Does |
 |---|---|---|
-| `MoveUp` / `MoveDown` / `MoveLeft` / `MoveRight` | `↑` `↓` `←` `→` | Move the cursor |
-| `SelectUp` / `SelectDown` / `SelectLeft` / `SelectRight` | `Shift+↑` `Shift+↓` `Shift+←` `Shift+→` | Extend the selection |
-| `JumpUp` / `JumpDown` / `JumpLeft` / `JumpRight` | `Ctrl+↑` `Ctrl+↓` `Ctrl+←` `Ctrl+→` | Jump to the edge of the current data run |
-| `PageUp` / `PageDown` | `PgUp` / `PgDn` | Move a screen up or down |
-| `RowStart` / `RowEnd` | `Home` / `End` | First / last column of the row |
-| `SheetStart` | `Ctrl+Home` | Go to cell 1,1 |
+| `move_up` / `move_down` / `move_left` / `move_right` | `↑` `↓` `←` `→` | Move the cursor |
+| `select_up` / `select_down` / `select_left` / `select_right` | `Shift+↑` `Shift+↓` `Shift+←` `Shift+→` | Extend the selection |
+| `jump_up` / `jump_down` / `jump_left` / `jump_right` | `Ctrl+↑` `Ctrl+↓` `Ctrl+←` `Ctrl+→` | Jump to the edge of the current data run |
+| `page_up` / `page_down` | `PgUp` / `PgDn` | Move a screen up or down |
+| `row_start` / `row_end` | `Home` / `End` | First / last column of the row |
+| `sheet_start` | `Ctrl+Home` | Go to cell 1,1 |
 
 Mouse: click to select, drag to select a rectangle (the grid auto-scrolls at the edges), click a
 row or column header to select the whole row or column, `Shift+click` to extend. The mouse wheel
@@ -605,11 +606,11 @@ a column or row; double-click the edge to fit the contents.
 
 | Action | Keys | Does |
 |---|---|---|
-| `EditCell` | `F2`, `Enter` (also double-click, or just type) | Edit the cell |
-| `ClearCells` | `Delete`, `Backspace` | Clear the selected cells |
-| `Undo` | `Ctrl+Z` | Undo |
-| `Redo` | `Ctrl+Shift+Z`, `Ctrl+Y` | Redo |
-| `Cancel` | `Esc` | Cancel the current operation (such as an auto-fill preview) |
+| `edit_cell` | `F2`, `Enter` (also double-click, or just type) | Edit the cell |
+| `clear_cells` | `Delete`, `Backspace` | Clear the selected cells |
+| `undo` | `Ctrl+Z` | Undo |
+| `redo` | `Ctrl+Shift+Z`, `Ctrl+Y` | Redo |
+| `cancel` | `Esc` | Cancel the current operation (such as an auto-fill preview) |
 
 While the cell editor is open: `Enter` / `Shift+Enter` commit and move down / up, `Tab` /
 `Shift+Tab` commit and move right / left, `Esc` cancels.
@@ -618,15 +619,15 @@ While the cell editor is open: `Enter` / `Shift+Enter` commit and move down / up
 
 | Action | Keys | Does |
 |---|---|---|
-| `FillDown` | `Ctrl+D` | Fill down |
-| `FillRight` | `Ctrl+R` | Fill right |
-| `AutoFillColumn` | `Ctrl+Shift+D` | Auto-fill the adjacent run in the column (preview, then `Enter`) |
-| `AutoFillRow` | `Ctrl+Shift+R` | Auto-fill the adjacent run in the row |
-| `CopyCells` | `Ctrl+C` | Copy |
-| `CutCells` | `Ctrl+X` | Cut |
-| `PasteCells` | `Ctrl+V` | Paste values and metatables |
-| `PasteValues` | `Ctrl+Shift+V` | Paste values only |
-| `PasteMeta` | `Ctrl+Alt+V` | Paste metatables only |
+| `fill_down` | `Ctrl+D` | Fill down |
+| `fill_right` | `Ctrl+R` | Fill right |
+| `auto_fill_column` | `Ctrl+Shift+D` | Auto-fill the adjacent run in the column (preview, then `Enter`) |
+| `auto_fill_row` | `Ctrl+Shift+R` | Auto-fill the adjacent run in the row |
+| `copy` | `Ctrl+C` | Copy |
+| `cut` | `Ctrl+X` | Cut |
+| `paste` | `Ctrl+V` | Paste values and metatables |
+| `paste_values` | `Ctrl+Shift+V` | Paste values only |
+| `paste_meta` | `Ctrl+Alt+V` | Paste metatables only |
 
 Fill handle: drag to fill metatables; hold `Ctrl` while dragging to fill values too.
 
@@ -634,21 +635,21 @@ Fill handle: drag to fill metatables; hold `Ctrl` while dragging to fill values 
 
 | Action | Keys | Does |
 |---|---|---|
-| `InsertCells` | `Ctrl+Shift+=`, `Ctrl++`, `Ctrl+Shift++` | Insert rows (or columns, if whole columns are selected) |
-| `DeleteCells` | `Ctrl+-` | Delete the selected rows (or columns) |
-| `InsertChart` | `Alt+F1`, `F11` | Insert a chart from the selection |
+| `insert_cells` | `Ctrl+Shift+=`, `Ctrl++`, `Ctrl+Shift++` | Insert rows (or columns, if whole columns are selected) |
+| `delete_cells` | `Ctrl+-` | Delete the selected rows (or columns) |
+| `insert_chart` | `Alt+F1`, `F11` | Insert a chart from the selection |
 
 ### 15.5 Metatables, modes and panels (global)
 
 | Action | Keys | Does |
 |---|---|---|
-| `CommandPalette` | `Ctrl+Shift+P` | Open the command palette |
-| `ToggleCodeSide` | `F3` | Flip between normal mode and the code side |
-| `ToggleDock` | `F4` | Show or hide the Metatable dock |
-| `ToggleHistory` | `F5` | Show or hide the History dock |
-| `ToggleBoundaries` | `Ctrl+Shift+B` | Show or hide metatable boundaries |
-| `NewMetaOnSelection` | `Ctrl+Shift+M` | Give the selection a new metatable and open it in the dock |
-| `AddSheet` | `Shift+F11` | Add a sheet |
+| `command_palette` | `Ctrl+Shift+P` | Open the command palette |
+| `toggle_code_side` | `F3` | Flip between normal mode and the code side |
+| `toggle_metatable_dock` | `F4` | Show or hide the Metatable dock |
+| `toggle_history_dock` | `F5` | Show or hide the History dock |
+| `toggle_boundaries` | `Ctrl+Shift+B` | Show or hide metatable boundaries |
+| `new_meta_on_selection` | `Ctrl+Shift+M` | Give the selection a new metatable and open it in the dock |
+| `add_sheet` | `Shift+F11` | Add a sheet |
 
 Not actions, but worth knowing:
 
@@ -664,9 +665,9 @@ Not actions, but worth knowing:
 
 | Action | Keys | Does |
 |---|---|---|
-| `NewFile` | `Ctrl+N` | New workbook |
-| `OpenFile` | `Ctrl+O` | Open a workbook |
-| `SaveAs` | `Ctrl+Shift+S` | Save As |
-| `Quit` | `Ctrl+Q` | Quit |
-| `ImportCsv` | (palette / file menu) | Import CSV |
-| `ExportCsv` | (palette / file menu) | Export CSV |
+| `new_file` | `Ctrl+N` | New workbook |
+| `open_file` | `Ctrl+O` | Open a workbook |
+| `save_as` | `Ctrl+Shift+S` | Save As |
+| `quit` | `Ctrl+Q` | Quit |
+| `import_csv` | (palette / file menu) | Import CSV |
+| `export_csv` | (palette / file menu) | Export CSV |

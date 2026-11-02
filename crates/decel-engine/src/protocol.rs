@@ -225,6 +225,10 @@ pub enum Command {
     ChartDelete {
         id: ChartId,
     },
+    /// Limits for workbooks opened from now on.
+    SetLimits {
+        limits: crate::Limits,
+    },
     /// Writes a workbook setting outside the undo history.
     SetSetting {
         key: String,

@@ -2,6 +2,8 @@
 name = "decel-io"
 description = "CSV import/export for decel"
 readme = "../../README.md"
+keywords = ["csv", "decel", "spreadsheet", "windows-1252"]
+categories = ["encoding", "parser-implementations"]
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -5,7 +5,9 @@ how it computes, displays, edits, parses and validates its value. See
 [DESIGN.md](DESIGN.md) for the specification and
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the roadmap.
 
-> **Status:** pre-alpha (Phase 0). Nothing useful to install yet.
+> **Status:** feature-complete for v1.0 (Phases 0–10 of the plan); not yet published to
+> crates.io. See [docs/user-guide.md](docs/user-guide.md) and [docs/lua-api.md](docs/lua-api.md).
+> Try it: `cargo run -p decel-cli -- examples examples/ && cargo run --release -p decel -- examples/survey.decel`.
 
 ## Install
 
@@ -60,8 +62,11 @@ A devcontainer (`.devcontainer/`) provides the full Linux toolchain. Common task
 are in the `justfile`:
 
 ```sh
-just check   # fmt, clippy, tests, cargo-deny
-just run     # run the app
+just check            # fmt, clippy, tests, cargo-deny
+just run             # run the app
+just publish-dry-run # package and verify every crate
+
+scripts/ui-drive.sh  # render the UI headlessly (Xvfb + lavapipe) and screenshot it
 ```
 
 ## License

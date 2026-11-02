@@ -15,8 +15,10 @@ fn num(v: &LuaValue) -> Option<f64> {
     }
 }
 
+/// Decimal places (or significant figures) from Lua, clamped to what the
+/// stdlib supports.
 fn dp(v: Option<i64>, default: u32) -> u32 {
-    v.map_or(default, |d| d.clamp(0, 15) as u32)
+    v.map_or(default, |d| d.clamp(0, i64::from(fmt::MAX_DP)) as u32)
 }
 
 /// Formatters pass non-numbers through `tostring`, so `fmt.fixed(nil)` is

@@ -524,3 +524,26 @@ fn charts_follow_structure_and_undo_exactly() {
     s.undo().unwrap();
     assert_eq!(s.load().unwrap().charts.values().next().unwrap(), &rec);
 }
+
+#[test]
+fn cyclic_txn_targets_are_an_error_not_a_hang() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cyc.decel");
+    {
+        let mut s = Store::create(&path).unwrap();
+        s.apply(set("one", vec![(a(0, 0), int(1))])).unwrap();
+    }
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO txns(id, ts, label, kind, target) VALUES (5, 0, 'x', 1, 6);
+             INSERT INTO txns(id, ts, label, kind, target) VALUES (6, 0, 'y', 2, 5);",
+        )
+        .unwrap();
+    }
+    let s = Store::open(&path).unwrap();
+    // Must return (an error or a label), not loop forever.
+    let _ = s.undo_label();
+    let _ = s.redo_label();
+}

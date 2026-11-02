@@ -549,3 +549,26 @@ fn absolute_at_is_not_rewritten_by_structure_ops() {
     // c:at(1,1) still means row 1, which is now blank (DESIGN §7, documented).
     assert_eq!(wb.value(6, 2), Value::Nil);
 }
+
+#[test]
+fn blank_text_clears_even_with_parse_hook() {
+    let mut wb = Wb::new();
+    wb.meta(1, 1, &latitude());
+    wb.type_text(1, 1, "-35").unwrap();
+    wb.type_text(1, 1, "  ").unwrap();
+    assert_eq!(wb.value(1, 1), Value::Nil);
+}
+
+#[test]
+fn validate_skips_nil_computed_values() {
+    let mut wb = Wb::new();
+    wb.meta(
+        1,
+        1,
+        &meta()
+            .with("value", "return nil")
+            .with("validate", "return v > 1"),
+    );
+    assert_eq!(wb.value(1, 1), Value::Nil);
+    assert!(wb.display_cell(1, 1).warning.is_none());
+}

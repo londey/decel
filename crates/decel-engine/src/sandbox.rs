@@ -28,7 +28,7 @@ const HOOK_INTERVAL: u32 = 1_000;
 const LOG_LINES: usize = 200;
 
 /// Resource limits (DESIGN §6.2).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// VM instructions allowed per hook call.
     pub instructions: u64,

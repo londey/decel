@@ -48,9 +48,47 @@ fn bench(c: &mut Criterion) {
     });
 }
 
+/// §11: a 100 k-cell workbook opened and displayed in under 1 s.
+fn open(c: &mut Criterion) {
+    use decel_model::{CellAddr, MetaSource, Op, SheetId, TxnInput};
+    use decel_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("open.decel");
+    {
+        let mut store = Store::create(&path).unwrap();
+        let m = MetaSource::default().with("value", "return c:left().value * 2");
+        let h = m.hash();
+        let mut cells = Vec::new();
+        for r in 0..50_000u32 {
+            cells.push((
+                CellAddr::new(SheetId(1), r, 0),
+                Cell::value(Value::Int(i64::from(r))),
+            ));
+            cells.push((CellAddr::new(SheetId(1), r, 1), Cell::EMPTY.with_meta(h)));
+        }
+        store
+            .apply(TxnInput::new("big").op(Op::SetCells(cells)).meta(m))
+            .unwrap();
+        store.checkpoint().unwrap();
+    }
+    c.bench_function("open_and_display_100k", |b| {
+        b.iter(|| {
+            let store = Store::open_read_only(&path).unwrap();
+            let wb = store.load().unwrap();
+            let mut engine = decel_engine::Engine::new(wb, Default::default()).unwrap();
+            // A screenful: 50 rows x 20 columns.
+            for r in 0..50 {
+                for col in 0..20 {
+                    let _ = engine.display(CellAddr::new(SheetId(1), r, col));
+                }
+            }
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench
+    targets = bench, open
 }
 criterion_main!(benches);

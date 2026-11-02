@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 10 — Polish & release prep
+
+#### Added
+
+- Command palette (`Ctrl+Shift+P`) with fuzzy search over every command and recent file, showing
+  key bindings; Detach, Import/Export CSV and Open configuration are palette commands.
+- `config.toml`: theme, font, peek key, letter column headers, engine limits and `[keymap]`
+  overrides; hot-reloaded; invalid files reported without stopping the app.
+- Crash safety: a panic hook writes a crash log; an engine-thread panic is reported and the
+  workbook file stays intact.
+- Hostile-file property test (schema-valid files with corrupt rows) over store and engine.
+- `docs/user-guide.md`, `docs/lua-api.md`, `decel-cli examples` (survey, budget, engineering).
+- Open-and-display bench (100 k cells: ~35 ms); non-blocking CI bench/report job.
+
+#### Changed
+
+- Blank text clears a cell even when it has a `parse` hook; `validate` isn't called on `nil`
+  computed values; `fmt` decimal places now go up to 20.
+
+#### Fixed
+
+- A workbook with cyclic undo/redo targets could hang while computing undo labels.
+
 ### Phase 8 — CSV
 
 #### Added
