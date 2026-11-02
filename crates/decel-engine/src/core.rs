@@ -18,6 +18,8 @@ use crate::deps::Deps;
 pub struct MetaInfo {
     pub kind: Option<Arc<str>>,
     pub unit: Option<Arc<str>>,
+    /// What the code side shows: `kind`, or the first member's name.
+    pub label: Option<Arc<str>>,
     pub has_value: bool,
 }
 

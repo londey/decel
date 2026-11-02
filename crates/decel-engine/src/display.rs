@@ -95,6 +95,8 @@ pub struct DisplayCell {
     pub hash: Option<MetaHash>,
     pub kind: Option<Arc<str>>,
     pub unit: Option<Arc<str>>,
+    /// Code-side label: `kind`, or the first member's name.
+    pub label: Option<Arc<str>>,
 }
 
 impl DisplayCell {

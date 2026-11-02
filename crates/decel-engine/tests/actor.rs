@@ -439,3 +439,123 @@ fn copy_paste_values_and_meta() {
     assert_eq!(cl.text(a(0, 1)), "x5");
     assert_eq!(cl.text(a(0, 2)), "5");
 }
+
+#[test]
+fn colors_summary_new_meta_and_text_paste() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("c.decel");
+    let mut cl = Client::new();
+    cl.call(Command::New {
+        path: Some(path.clone()),
+    })
+    .unwrap();
+    let mut colors = Default::default();
+    let a_src = MetaSource::default().with("kind", "\"a\"");
+    let b_src = MetaSource::default().with("kind", "\"b\"");
+    for (src, r) in [(&a_src, 0), (&b_src, 1)] {
+        cl.call(Command::SetMeta {
+            targets: vec![a(r, 0), a(r, 1)],
+            source: Some(src.clone()),
+            mode: MetaEditMode::Cow,
+        })
+        .unwrap();
+    }
+    // Workbook events carry first-appearance colour indexes.
+    let seq = cl.h.send(Command::QueryTxns { limit: 1 });
+    loop {
+        match cl.h.events().recv_timeout(Duration::from_secs(5)).unwrap() {
+            Event::Workbook(info) => colors = info.meta_colors.clone(),
+            Event::Ack { seq: s, .. } if s == seq => break,
+            _ => {}
+        }
+    }
+    let _ = &colors;
+    let Reply::Summary(sum) = cl.call(Command::MetaSummary { sheet: S1 }).unwrap() else {
+        panic!()
+    };
+    assert_eq!(sum.len(), 2);
+    assert!(sum.iter().all(|s| s.count == 2 && s.total == 2));
+    assert_eq!(
+        sum.iter()
+            .find(|s| s.hash == a_src.hash())
+            .unwrap()
+            .kind
+            .as_deref(),
+        Some("a")
+    );
+
+    // New metatable on a selection: one shared, new hash.
+    let Reply::Committed { affected } = cl
+        .call(Command::NewMeta {
+            targets: vec![a(5, 0), a(6, 0)],
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(affected.len(), 2);
+
+    // Pasted text goes through the target's parse/validate hooks.
+    cl.call(Command::SetMeta {
+        targets: vec![a(3, 0), a(3, 1)],
+        source: Some(
+            MetaSource::default()
+                .with("parse", "return tonumber(text) and tonumber(text) * 100")
+                .with(
+                    "validate",
+                    "if v > 1000 then return false, 'big' end return true",
+                ),
+        ),
+        mode: MetaEditMode::Cow,
+    })
+    .unwrap();
+    let r = cl
+        .call(Command::PasteText {
+            at: a(3, 0),
+            text: "2\t50\r\n".into(),
+        })
+        .unwrap();
+    assert!(matches!(r, Reply::Committed { ref affected } if affected == &[a(3, 0)]));
+    let Reply::Values(vals) = cl
+        .call(Command::Values {
+            sheet: S1,
+            rect: Rect::new(3, 0, 3, 1),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(vals[0], (a(3, 0), Value::Int(200)));
+
+    // Copy carries TSV edit text.
+    let Reply::Clip(clip) = cl
+        .call(Command::Copy {
+            sheet: S1,
+            rect: Rect::new(3, 0, 3, 1),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(clip.text, "200\t");
+
+    // Colours persist across reopen.
+    drop(cl);
+    let mut cl = Client::new();
+    let seq = cl.h.send(Command::Open {
+        path,
+        read_only: false,
+    });
+    let mut reopened = None;
+    loop {
+        match cl.h.events().recv_timeout(Duration::from_secs(5)).unwrap() {
+            Event::Workbook(info) => reopened = Some(info.meta_colors.clone()),
+            Event::Ack { seq: s, .. } if s == seq => break,
+            _ => {}
+        }
+    }
+    let reopened = reopened.unwrap();
+    assert_eq!(reopened[&a_src.hash()], 0);
+    assert_eq!(reopened[&b_src.hash()], 1);
+    assert_eq!(reopened.len(), 4);
+}

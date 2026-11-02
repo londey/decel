@@ -6,7 +6,9 @@
 
 mod actions;
 mod client;
+mod dock;
 mod grid;
+mod palette;
 mod recent;
 mod sizes;
 mod workspace;

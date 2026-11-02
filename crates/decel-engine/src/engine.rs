@@ -535,6 +535,7 @@ impl Engine {
             hash,
             kind: info.and_then(|i| i.kind.clone()),
             unit: info.and_then(|i| i.unit.clone()),
+            label: info.and_then(|i| i.label.clone()),
             ..DisplayCell::default()
         };
         let default_style = CellStyle {

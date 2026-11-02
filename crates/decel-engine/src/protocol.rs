@@ -47,6 +47,8 @@ pub struct ClipData {
     pub cols: u32,
     pub cells: Vec<Cell>,
     pub metas: Vec<MetaSource>,
+    /// The same rectangle as tab-separated edit text, for the system clipboard.
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +101,20 @@ pub enum Command {
         at: CellAddr,
         clip: ClipData,
         mode: PasteMode,
+    },
+    /// Pastes tab-separated text; each cell goes through its own `parse`
+    /// and `validate` hooks. Rejected cells are left unchanged.
+    PasteText {
+        at: CellAddr,
+        text: String,
+    },
+    /// Gives `targets` a new, empty metatable (with a unique `kind`).
+    NewMeta {
+        targets: Vec<CellAddr>,
+    },
+    /// Per-metatable counts for the peek legend.
+    MetaSummary {
+        sheet: SheetId,
     },
     /// Builds clipboard contents for a rectangle.
     Copy {
@@ -217,12 +233,25 @@ pub enum Reply {
     History(Vec<CellVersion>),
     ShareSet(Vec<CellAddr>),
     Meta(Option<MetaSource>),
+    Summary(Vec<MetaSummary>),
     Txns {
         txns: Vec<TxnInfo>,
         /// Ids currently on the undo stack (bottom first).
         undo: Vec<TxnId>,
         redo: Vec<TxnId>,
     },
+}
+
+/// One metatable's entry in the peek legend.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MetaSummary {
+    pub hash: MetaHash,
+    pub kind: Option<String>,
+    pub unit: Option<String>,
+    /// Cells on the requested sheet.
+    pub count: usize,
+    /// Cells on every sheet.
+    pub total: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -241,6 +270,9 @@ pub struct WorkbookInfo {
     pub sheets: Vec<SheetInfo>,
     pub charts: BTreeMap<ChartId, ChartRecord>,
     pub settings: BTreeMap<String, String>,
+    /// Colour index per metatable, in order of first appearance
+    /// (DESIGN §8.3). Index 16 and up repeat the palette with a hatch.
+    pub meta_colors: BTreeMap<MetaHash, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

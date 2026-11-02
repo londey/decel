@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The virtualised grid element (DESIGN §8.2).
+//! The virtualised grid element (DESIGN §8.2, §8.3).
 //!
-//! Only visible cells are shaped and painted. Painting order: backgrounds,
-//! grid lines, selection fill, text, markers, selection outline, then the
-//! frozen headers on top.
+//! Only visible cells are shaped and painted. Painting order: backgrounds
+//! (and metatable tints in peek / code side), metatable boundaries, grid
+//! lines, selection fill, text, markers, selection outline, fill handle,
+//! overlays (fill/auto-fill previews, share-set outline), then the frozen
+//! headers on top.
+//!
+//! The code-side flip scales the body horizontally through zero over
+//! [`FLIP`](crate::workspace::FLIP); text is hidden while it runs.
 
 use std::cell::Cell as StdCell;
 use std::rc::Rc;
 
 use decel_engine::{Align, DisplayCell};
-use decel_model::CellAddr;
+use decel_model::{CellAddr, MetaHash, Rect};
 use gpui::{
     App, Bounds, ContentMask, Element, ElementId, Entity, FontStyle, FontWeight, GlobalElementId,
     Hsla, InspectorElementId, IntoElement, LayoutId, PathBuilder, Pixels, Point, ShapedLine,
@@ -18,10 +23,12 @@ use gpui::{
 };
 use gpui_component::ActiveTheme as _;
 
+use crate::palette;
 use crate::workspace::{HEADER_H, HEADER_W, SelMode, Workspace};
 
 const PAD: f32 = 5.0;
 const MARKER: f32 = 6.0;
+const HANDLE: f32 = 6.0;
 
 pub struct GridElement {
     view: Entity<Workspace>,
@@ -40,16 +47,20 @@ struct Colors {
     header_active: Hsla,
     line: Hsla,
     text: Hsla,
+    muted: Hsla,
     header_text: Hsla,
     select: Hsla,
     select_fill: Hsla,
     error: Hsla,
     warning: Hsla,
+    boundary: Hsla,
 }
 
 struct PaintCell {
     bounds: Bounds<Pixels>,
     bg: Option<Hsla>,
+    /// Metatable tint and whether it is hatched (peek / code side).
+    tint: Option<(Hsla, bool)>,
     /// Text clip (spilled into empty neighbours when the text overflows).
     clip: Bounds<Pixels>,
     line: Option<(ShapedLine, Point<Pixels>)>,
@@ -60,12 +71,19 @@ pub struct Prepared {
     colors: Colors,
     body: Bounds<Pixels>,
     cells: Vec<PaintCell>,
+    boundaries: Vec<(Bounds<Pixels>, Hsla)>,
     hlines: Vec<Pixels>,
     vlines: Vec<Pixels>,
     col_heads: Vec<(Bounds<Pixels>, ShapedLine, bool)>,
     row_heads: Vec<(Bounds<Pixels>, ShapedLine, bool)>,
     sel: Option<Bounds<Pixels>>,
     cursor: Option<Bounds<Pixels>>,
+    handle: Option<Bounds<Pixels>>,
+    fill_preview: Option<Bounds<Pixels>>,
+    autofill: Vec<Bounds<Pixels>>,
+    share: Vec<Bounds<Pixels>>,
+    share_color: Hsla,
+    animating: bool,
 }
 
 fn rgb_hsla((r, g, b): (u8, u8, u8)) -> Hsla {
@@ -175,17 +193,20 @@ impl Element for GridElement {
     ) -> Self::PrepaintState {
         self.bounds_out.set(bounds);
         let theme = cx.theme();
+        let dark = theme.is_dark();
         let colors = Colors {
             bg: theme.background,
             header: theme.secondary,
             header_active: theme.secondary_active,
             line: theme.border.opacity(0.6),
             text: theme.foreground,
+            muted: theme.muted_foreground,
             header_text: theme.muted_foreground,
             select: theme.primary,
             select_fill: theme.primary.opacity(0.12),
             error: theme.danger,
             warning: theme.warning,
+            boundary: theme.muted_foreground.opacity(0.55),
         };
         let mono = theme.mono_font_family.clone();
         let ws = self.view.read(cx);
@@ -200,20 +221,55 @@ impl Element for GridElement {
                 (bounds.size.height - px(HEADER_H as f32)).max(px(0.)),
             ),
         );
+
+        // Code-side flip: scale x about the body's centre; switch content at
+        // the midpoint; hide text while animating.
+        let progress = ws.flip_progress();
+        let animating = progress.is_some();
+        let (scale, code) = match progress {
+            Some(p) => (
+                (1.0 - 2.0 * p).abs(),
+                if p < 0.5 { !ws.code_side } else { ws.code_side },
+            ),
+            None => (1.0, ws.code_side),
+        };
+        let tinted = ws.peek || code;
+        let centre = body.origin.x + body.size.width / 2.0;
+        let sx = |x: Pixels| centre + (x - centre) * scale;
+
         let vis = ws.visible();
-        let (sx, sy) = ws.scroll;
-        let x_of = |c: u32| body.origin.x + px((ws.cols.offset(c) - sx) as f32);
-        let y_of = |r: u32| body.origin.y + px((ws.rows.offset(r) - sy) as f32);
+        let (scx, scy) = ws.scroll;
+        let x_of = |c: u32| body.origin.x + px((ws.cols.offset(c) - scx) as f32);
+        let y_of = |r: u32| body.origin.y + px((ws.rows.offset(r) - scy) as f32);
         let cell_bounds = |r: u32, c: u32| {
+            let (x0, x1) = (sx(x_of(c)), sx(x_of(c) + px(ws.cols.size(c) as f32)));
             Bounds::new(
-                point(x_of(c), y_of(r)),
-                size(px(ws.cols.size(c) as f32), px(ws.rows.size(r) as f32)),
+                point(x0, y_of(r)),
+                size(x1 - x0, px(ws.rows.size(r) as f32)),
             )
+        };
+        let rect_bounds = |r: Rect| {
+            let (r1, r2) = (r.r1.max(vis.r1), r.r2.min(vis.r2.saturating_add(1)));
+            let (c1, c2) = (r.c1.max(vis.c1), r.c2.min(vis.c2.saturating_add(1)));
+            (r2 >= r1 && c2 >= c1).then(|| {
+                let a = cell_bounds(r1, c1);
+                let b = cell_bounds(r2, c2);
+                Bounds::from_corners(
+                    a.origin,
+                    point(b.origin.x + b.size.width, b.origin.y + b.size.height),
+                )
+            })
         };
         let sheet = ws.sheet;
         let get =
             |r: u32, c: u32| -> Option<&DisplayCell> { ws.cache.get(&CellAddr::new(sheet?, r, c)) };
         let has_text = |r: u32, c: u32| get(r, c).is_some_and(|d| !d.text.is_empty());
+        let hash_at = |r: u32, c: u32| -> Option<Option<MetaHash>> { get(r, c).map(|d| d.hash) };
+        let meta_colors = ws.info.as_ref().map(|i| &i.meta_colors);
+        let color_of = |h: MetaHash| -> (Hsla, bool) {
+            let idx = meta_colors.and_then(|m| m.get(&h)).copied().unwrap_or(0);
+            (palette::color(idx, dark), palette::hatched(idx))
+        };
 
         let mut cells = Vec::new();
         for r in vis.r1..=vis.r2 {
@@ -221,6 +277,10 @@ impl Element for GridElement {
                 let Some(d) = get(r, c) else { continue };
                 let b = cell_bounds(r, c);
                 let bg = d.style.bg.map(rgb_hsla);
+                let tint = d.hash.filter(|_| tinted).map(|h| {
+                    let (col, hatch) = color_of(h);
+                    (col.opacity(if code { 0.55 } else { 0.4 }), hatch)
+                });
                 let marker = if d.error.is_some() || d.display_error.is_some() {
                     Some(colors.error)
                 } else if d.warning.is_some() {
@@ -229,16 +289,28 @@ impl Element for GridElement {
                     None
                 };
                 let mut clip = b;
-                let line = if d.text.is_empty() {
+                let (text, color, align) = if code {
+                    (
+                        d.label.as_deref().unwrap_or("").to_string(),
+                        colors.muted,
+                        Align::Left,
+                    )
+                } else {
+                    (
+                        d.text.clone(),
+                        d.style.fg.map(rgb_hsla).unwrap_or(colors.text),
+                        d.align(),
+                    )
+                };
+                let line = if text.is_empty() || animating {
                     None
                 } else {
-                    let color = d.style.fg.map(rgb_hsla).unwrap_or(colors.text);
-                    let full = shape(window, &d.text, color, Some(d), &mono);
+                    let style_src = (!code).then_some(d);
+                    let full = shape(window, &text, color, style_src, &mono);
                     let need = full.width() + px(2.0 * PAD);
-                    let align = d.align();
                     // Spill into empty neighbours (left-aligned spills right,
                     // right-aligned spills left).
-                    if need > b.size.width {
+                    if need > b.size.width && !code {
                         match align {
                             Align::Left => {
                                 let mut c2 = c;
@@ -263,7 +335,7 @@ impl Element for GridElement {
                     }
                     let avail = clip.size.width - px(2.0 * PAD);
                     let line = if full.width() > avail {
-                        shape_fit(window, &d.text, color, Some(d), &mono, avail)
+                        shape_fit(window, &text, color, style_src, &mono, avail)
                     } else {
                         full
                     };
@@ -278,6 +350,7 @@ impl Element for GridElement {
                 cells.push(PaintCell {
                     bounds: b,
                     bg,
+                    tint,
                     clip,
                     line,
                     marker,
@@ -285,8 +358,78 @@ impl Element for GridElement {
             }
         }
 
+        // Automatic boundaries: between adjacent cells whose hashes differ
+        // when at least one of them is non-empty.
+        let mut boundaries = Vec::new();
+        if ws.boundaries || code {
+            let width = px(if code { 2.0 } else { 1.5 });
+            let pick = |a: Option<Option<MetaHash>>, b: Option<Option<MetaHash>>| -> Hsla {
+                if !tinted {
+                    return colors.boundary;
+                }
+                match a.flatten().or(b.flatten()) {
+                    Some(h) => {
+                        let (c, _) = color_of(h);
+                        if dark {
+                            c
+                        } else {
+                            c.opacity(1.0).blend(Hsla::black().opacity(0.25))
+                        }
+                    }
+                    None => colors.boundary,
+                }
+            };
+            for r in vis.r1..=vis.r2 {
+                for c in vis.c1..=vis.c2 {
+                    let here = hash_at(r, c);
+                    let right = hash_at(r, c + 1);
+                    let below = hash_at(r + 1, c);
+                    let b = cell_bounds(r, c);
+                    let differs = |a: Option<Option<MetaHash>>, n: Option<Option<MetaHash>>| {
+                        (a.is_some() || n.is_some()) && a.flatten() != n.flatten()
+                    };
+                    if differs(here, right) {
+                        boundaries.push((
+                            Bounds::new(
+                                point(b.origin.x + b.size.width - width / 2.0, b.origin.y),
+                                size(width, b.size.height),
+                            ),
+                            pick(here, right),
+                        ));
+                    }
+                    if differs(here, below) {
+                        boundaries.push((
+                            Bounds::new(
+                                point(b.origin.x, b.origin.y + b.size.height - width / 2.0),
+                                size(b.size.width, width),
+                            ),
+                            pick(here, below),
+                        ));
+                    }
+                }
+            }
+            // Left/top edges of the visible area.
+            if vis.c1 > 0 {
+                for r in vis.r1..=vis.r2 {
+                    let (l, here) = (hash_at(r, vis.c1 - 1), hash_at(r, vis.c1));
+                    if (l.is_some() || here.is_some()) && l.flatten() != here.flatten() {
+                        let b = cell_bounds(r, vis.c1);
+                        boundaries.push((
+                            Bounds::new(
+                                point(b.origin.x - width / 2.0, b.origin.y),
+                                size(width, b.size.height),
+                            ),
+                            pick(here, l),
+                        ));
+                    }
+                }
+            }
+        }
+
         let hlines = (vis.r1..=vis.r2.saturating_add(1)).map(y_of).collect();
-        let vlines = (vis.c1..=vis.c2.saturating_add(1)).map(x_of).collect();
+        let vlines = (vis.c1..=vis.c2.saturating_add(1))
+            .map(|c| sx(x_of(c)))
+            .collect();
 
         let sel_rect = ws.sel.rect();
         let col_heads = (vis.c1..=vis.c2)
@@ -330,29 +473,61 @@ impl Element for GridElement {
             })
             .collect();
 
-        // Selection, clipped to the visible area.
-        let clamp_r = |r: u32| r.clamp(vis.r1, vis.r2.saturating_add(1));
-        let clamp_c = |c: u32| c.clamp(vis.c1, vis.c2.saturating_add(1));
-        let sel = {
-            let (r1, r2) = (clamp_r(sel_rect.r1), clamp_r(sel_rect.r2.saturating_add(1)));
-            let (c1, c2) = (clamp_c(sel_rect.c1), clamp_c(sel_rect.c2.saturating_add(1)));
-            (r2 > r1 && c2 > c1)
-                .then(|| Bounds::from_corners(point(x_of(c1), y_of(r1)), point(x_of(c2), y_of(r2))))
-        };
+        let sel = rect_bounds(sel_rect);
         let (cr, cc) = ws.sel.cursor;
         let cursor =
             (ws.sel.mode == SelMode::Cells && vis.contains(cr, cc)).then(|| cell_bounds(cr, cc));
+        let handle = (!animating && !code)
+            .then(|| ws.fill_handle())
+            .flatten()
+            .filter(|p| body.contains(p))
+            .map(|p| {
+                Bounds::new(
+                    point(p.x - px(HANDLE / 2.0), p.y - px(HANDLE / 2.0)),
+                    size(px(HANDLE), px(HANDLE)),
+                )
+            });
+        let fill_preview = ws.fill_drag.and_then(rect_bounds);
+        let autofill = ws
+            .autofill
+            .as_ref()
+            .map(|a| {
+                a.cells
+                    .iter()
+                    .filter(|x| Some(x.sheet) == sheet && vis.contains(x.row, x.col))
+                    .map(|x| cell_bounds(x.row, x.col))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (share, share_color) = match &ws.share_hl {
+            Some(hl) => (
+                hl.cells
+                    .iter()
+                    .filter(|x| Some(x.sheet) == sheet && vis.contains(x.row, x.col))
+                    .map(|x| cell_bounds(x.row, x.col))
+                    .collect(),
+                color_of(hl.hash).0,
+            ),
+            None => (Vec::new(), colors.select),
+        };
 
         Prepared {
             colors,
             body,
             cells,
+            boundaries,
             hlines,
             vlines,
             col_heads,
             row_heads,
             sel,
             cursor,
+            handle,
+            fill_preview,
+            autofill,
+            share,
+            share_color,
+            animating,
         }
     }
 
@@ -376,6 +551,12 @@ impl Element for GridElement {
                 if let Some(bg) = cell.bg {
                     window.paint_quad(fill(cell.bounds, bg));
                 }
+                if let Some((tint, hatch)) = cell.tint {
+                    window.paint_quad(fill(cell.bounds, tint));
+                    if hatch {
+                        paint_hatch(window, cell.bounds, tint.opacity(1.0));
+                    }
+                }
             }
             for &y in &p.hlines {
                 window.paint_quad(fill(
@@ -389,15 +570,17 @@ impl Element for GridElement {
                     c.line,
                 ));
             }
+            for (b, color) in &p.boundaries {
+                window.paint_quad(fill(*b, *color));
+            }
             if let Some(s) = p.sel {
                 window.paint_quad(fill(s, c.select_fill));
             }
             for cell in &p.cells {
                 if let Some((line, at)) = &cell.line {
-                    // Spilled text must not erase neighbours' grid lines, but
-                    // it covers them, as in other spreadsheets.
                     window.with_content_mask(Some(ContentMask { bounds: cell.clip }), |window| {
                         if cell.clip.size.width > cell.bounds.size.width {
+                            // Spilled text covers the neighbours' grid lines.
                             window.paint_quad(fill(
                                 Bounds::new(
                                     point(cell.clip.origin.x + px(1.), cell.clip.origin.y + px(1.)),
@@ -430,6 +613,30 @@ impl Element for GridElement {
             }
             if let Some(cur) = p.cursor {
                 paint_outline(window, cur, px(2.), c.select);
+            }
+            if let Some(h) = p.handle {
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(h.origin.x - px(1.), h.origin.y - px(1.)),
+                        size(h.size.width + px(2.), h.size.height + px(2.)),
+                    ),
+                    c.bg,
+                ));
+                window.paint_quad(fill(h, c.select));
+            }
+            if let Some(f) = p.fill_preview {
+                paint_outline(window, f, px(2.), c.select.opacity(0.6));
+            }
+            for b in &p.autofill {
+                paint_outline(window, *b, px(2.), c.warning);
+            }
+            for b in &p.share {
+                paint_outline(
+                    window,
+                    *b,
+                    px(2.),
+                    p.share_color.blend(Hsla::black().opacity(0.3)),
+                );
             }
         });
 
@@ -498,12 +705,13 @@ impl Element for GridElement {
             c.line,
         ));
 
-        self.view.update(cx, |ws, _| {
+        let measuring = self.view.update(cx, |ws, _| {
             if let Some(f) = ws.fps.as_mut() {
                 f.frame();
             }
+            ws.fps.is_some()
         });
-        if self.view.read(cx).fps.is_some() {
+        if measuring || p.animating {
             window.request_animation_frame();
         }
     }
@@ -515,4 +723,22 @@ fn paint_outline(window: &mut Window, b: Bounds<Pixels>, w: Pixels, color: Hsla)
     window.paint_quad(fill(Bounds::new(point(x, y + bh - w), size(bw, w)), color));
     window.paint_quad(fill(Bounds::new(point(x, y), size(w, bh)), color));
     window.paint_quad(fill(Bounds::new(point(x + bw - w, y), size(w, bh)), color));
+}
+
+/// Diagonal hatch for colour indexes beyond the 16-hue palette.
+fn paint_hatch(window: &mut Window, b: Bounds<Pixels>, color: Hsla) {
+    window.with_content_mask(Some(ContentMask { bounds: b }), |window| {
+        let step = px(7.);
+        let h = b.size.height;
+        let mut x = b.origin.x - h;
+        while x < b.origin.x + b.size.width {
+            let mut path = PathBuilder::stroke(px(1.));
+            path.move_to(point(x, b.origin.y + h));
+            path.line_to(point(x + h, b.origin.y));
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+            x += step;
+        }
+    });
 }

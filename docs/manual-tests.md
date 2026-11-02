@@ -80,3 +80,41 @@ Run on **Wayland**, **X11** and **Windows**.
 
 > UI changes can also be checked headlessly in the devcontainer with
 > `scripts/ui-drive.sh` (Xvfb + lavapipe + xdotool), which takes screenshots.
+
+## Phase 5 — Metatable UX
+
+Setup: `decel-cli demo /tmp/demo.decel` and open it.
+
+### Walkthrough: build §4.7 and §4.8 through the UI only
+
+1. In a new workbook, select 2,2 and press `Ctrl+Shift+M` (New metatable on selection). The dock opens on `kind`.
+2. Set `kind` to `"latitude"`, then use **+ add hook** to add `unit`, `display`, `edit`, `parse`, `validate`, `tooltip` and `edit_hint` with the bodies from DESIGN §4.7. Watch the member statuses (✓/⚠/✗) and the live `preview:` line as you type. `Ctrl+Enter` commits.
+3. Type `-35.3075` into 2,2: it shows `35°18′27.0″S`. Typing `95` is rejected with the message.
+4. Drag the fill handle (the small square at the selection's corner) down to 2,10. All of them share one colour in peek.
+5. Put numbers in column 5 (rows 2–20). Select 2,6, create a metatable with `kind = "running total"` and the §4.8 `value` and `style`, commit, then `Ctrl+D` over 2,6:20,6. The totals are correct.
+- [ ] Every step works without the test harness.
+
+### Peek, boundaries and code side
+
+- [ ] Holding `` ` `` tints cells by metatable within a frame, with a legend (swatch, kind, unit, count). Releasing it clears immediately. Alt-tabbing away while holding doesn't leave it stuck.
+- [ ] Boundaries are drawn between cells whose metatables differ (grey normally, coloured in peek). `Ctrl+Shift+B` toggles them.
+- [ ] `F3` flips to the code side with a quick horizontal flip: cells show their `kind`, tinted, and the dock opens. `F3` flips back.
+- [ ] More than 16 distinct metatables: colours repeat with a hatch.
+
+### Copy-on-write and shared edits
+
+- [ ] On the code side, clicking one of 20 running-total cells shows "Editing this cell only · shared by 19 others". Changing `kind` and pressing `Ctrl+Enter` changes only that cell's colour.
+- [ ] Holding `Shift` and hovering a running-total cell outlines all 20 cells with a count (other sheets included). `Shift+click` shows "Editing 20 cells (…)". A commit changes all of them, their colour stays shared, and one `Ctrl+Z` undoes it.
+- [ ] **Detach** gives the cell a private copy (a new colour) without changing the others.
+
+### Editor drafts
+
+- [ ] Type in `display`, switch to `value` and back: the typed text is still there (marked `•`). The same holds after toggling `F3` and after switching to another app and back.
+- [ ] `Esc` in the editor reverts the selected member. Selecting another cell commits pending drafts.
+
+### Fill, auto-fill and clipboard
+
+- [ ] Fill-handle drag shows a preview outline and fills metatables (values with `Ctrl` held). `Ctrl+D` / `Ctrl+R` fill down/right.
+- [ ] `Ctrl+Shift+D` on a cell above a run outlines the run in amber with a prompt in the status bar. `Enter` applies it, `Esc` cancels, and undo restores it in one step.
+- [ ] `Ctrl+C` / `Ctrl+V` within decel pastes values and metatables (pasted cells share the source's colour). `Ctrl+Shift+V` pastes values only, and `Ctrl+Alt+V` metatables only.
+- [ ] Copying to another app gives tab-separated edit text. Pasting text from another app goes through each target cell's `parse`/`validate`.

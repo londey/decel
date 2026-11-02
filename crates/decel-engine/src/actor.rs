@@ -21,7 +21,8 @@ use decel_store::{Committed, Store, StoreError};
 
 use crate::fill::{FillWhat, auto_fill_run, fill_from_edge, fill_pattern};
 use crate::protocol::{
-    ClipData, Command, Event, FillKind, MetaEditMode, PasteMode, Reply, SheetInfo, WorkbookInfo,
+    ClipData, Command, Event, FillKind, MetaEditMode, MetaSummary, PasteMode, Reply, SheetInfo,
+    WorkbookInfo,
 };
 use crate::{Engine, Limits};
 
@@ -125,6 +126,65 @@ impl Drop for EngineHandle {
 struct Doc {
     store: Store,
     engine: Engine,
+    /// Colour index per metatable hash (DESIGN §8.3).
+    colors: BTreeMap<MetaHash, u32>,
+}
+
+const COLORS_KEY: &str = "meta_colors";
+
+impl Doc {
+    /// Assigns colour indexes to hashes not seen before, in the given order.
+    /// Returns whether anything was assigned (and persists it).
+    fn assign_colors(&mut self, hashes: impl IntoIterator<Item = MetaHash>) -> bool {
+        let mut next = self.colors.values().max().map_or(0, |m| m + 1);
+        let mut changed = false;
+        for h in hashes {
+            if let std::collections::btree_map::Entry::Vacant(e) = self.colors.entry(h) {
+                e.insert(next);
+                next += 1;
+                changed = true;
+            }
+        }
+        if changed && !self.store.is_read_only() {
+            let map: BTreeMap<String, u32> = self
+                .colors
+                .iter()
+                .map(|(h, i)| (h.to_string(), *i))
+                .collect();
+            if let Ok(json) = serde_json::to_string(&map) {
+                let _ = self.store.set_setting(COLORS_KEY, &json);
+                self.engine.set_setting(COLORS_KEY, &json);
+            }
+        }
+        changed
+    }
+}
+
+fn parse_hash(s: &str) -> Option<MetaHash> {
+    if s.len() != 32 {
+        return None;
+    }
+    let mut out = [0u8; 16];
+    for (i, b) in out.iter_mut().enumerate() {
+        *b = u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(MetaHash(out))
+}
+
+/// Hashes in first-appearance order: sheets in tab order, then row-major.
+fn hashes_in_order(wb: &Workbook) -> Vec<MetaHash> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for sheet in wb.sheets_ordered() {
+        for (_, cell) in sheet.cells.iter() {
+            if let Some(h) = cell.meta
+                && seen.insert(h)
+            {
+                out.push(h);
+            }
+        }
+    }
+    out
 }
 
 struct Actor {
@@ -289,6 +349,7 @@ impl Actor {
                 .collect(),
             charts: wb.charts.clone(),
             settings: wb.settings.clone(),
+            meta_colors: doc.colors.clone(),
         })
     }
 
@@ -300,8 +361,24 @@ impl Actor {
 
     fn load(&mut self, store: Store) -> Ack {
         let wb = store.load()?;
+        let mut colors = BTreeMap::new();
+        if let Some(json) = wb.settings.get(COLORS_KEY)
+            && let Ok(map) = serde_json::from_str::<BTreeMap<String, u32>>(json)
+        {
+            colors = map
+                .into_iter()
+                .filter_map(|(k, v)| Some((parse_hash(&k)?, v)))
+                .collect();
+        }
+        let order = hashes_in_order(&wb);
         let engine = Engine::new(wb, self.limits)?;
-        self.doc = Some(Doc { store, engine });
+        let mut doc = Doc {
+            store,
+            engine,
+            colors,
+        };
+        doc.assign_colors(order);
+        self.doc = Some(doc);
         self.subs.clear();
         self.emit_workbook();
         self.emit_txn_state(String::new());
@@ -334,11 +411,25 @@ impl Actor {
                 }
             })
             .collect();
+        let mut new_colors = false;
         if let Some(doc) = self.doc.as_mut() {
             doc.engine.apply(&c.changes);
+            let mut cells: Vec<(CellAddr, MetaHash)> = c
+                .changes
+                .iter()
+                .filter_map(|ch| match ch {
+                    Change::Cell { addr, after, .. } => after.meta.map(|h| (*addr, h)),
+                    _ => None,
+                })
+                .collect();
+            cells.sort();
+            new_colors = doc.assign_colors(cells.into_iter().map(|(_, h)| h));
         }
         self.wal_dirty = true;
         self.emit_txn_state(c.txn.label.clone());
+        if new_colors && !structural {
+            self.emit_workbook();
+        }
         if structural {
             self.emit_workbook();
             // Structure ops shift cells: refresh every subscription.
@@ -472,11 +563,74 @@ impl Actor {
                 self.set_cells(label, cells, Vec::new())
             }
             Command::Paste { at, clip, mode } => self.paste(at, clip, mode),
-            Command::Copy { sheet, rect } => Ok(Reply::Clip(copy(
-                self.doc()?.engine.workbook(),
-                sheet,
-                rect,
-            ))),
+            Command::Copy { sheet, rect } => {
+                Ok(Reply::Clip(copy(&mut self.doc()?.engine, sheet, rect)))
+            }
+            Command::PasteText { at, text } => {
+                let engine = &mut self.doc()?.engine;
+                let mut cells = Vec::new();
+                let mut rejected = 0;
+                for (r, line) in text.trim_end_matches(['\n', '\r']).split('\n').enumerate() {
+                    for (c, field) in line.trim_end_matches('\r').split('\t').enumerate() {
+                        let Some(a) = at.offset(r as i64, c as i64) else {
+                            continue;
+                        };
+                        match engine.enter_text(a, field) {
+                            Ok(cell) => cells.push((a, cell)),
+                            Err(_) => rejected += 1,
+                        }
+                    }
+                }
+                let label = if rejected > 0 {
+                    format!("Paste ({rejected} cell(s) rejected)")
+                } else {
+                    "Paste".into()
+                };
+                self.set_cells(label, cells, Vec::new())
+            }
+            Command::NewMeta { targets } => {
+                let wb = self.doc()?.engine.workbook();
+                let mut n = 1u32;
+                let src = loop {
+                    let src = MetaSource::default().with("kind", &format!("\"kind {n}\""));
+                    if !wb.metas.contains_key(&src.hash()) {
+                        break src;
+                    }
+                    n += 1;
+                };
+                self.set_meta(targets, Some(src), MetaEditMode::Cow)
+            }
+            Command::MetaSummary { sheet } => {
+                let wb = self.doc()?.engine.workbook();
+                let mut counts: HashMap<MetaHash, (usize, usize)> = HashMap::new();
+                for s in wb.sheets.values() {
+                    for (_, cell) in s.cells.iter() {
+                        if let Some(h) = cell.meta {
+                            let e = counts.entry(h).or_default();
+                            e.1 += 1;
+                            if s.id == sheet {
+                                e.0 += 1;
+                            }
+                        }
+                    }
+                }
+                let mut out: Vec<MetaSummary> = counts
+                    .into_iter()
+                    .filter(|(_, (n, _))| *n > 0)
+                    .map(|(hash, (count, total))| {
+                        let src = wb.meta(&hash);
+                        MetaSummary {
+                            hash,
+                            kind: src.and_then(|s| s.kind_label()),
+                            unit: src.and_then(|s| s.unit_label()),
+                            count,
+                            total,
+                        }
+                    })
+                    .collect();
+                out.sort_by(|a, b| b.count.cmp(&a.count).then(a.hash.cmp(&b.hash)));
+                Ok(Reply::Summary(out))
+            }
             Command::Undo => match self.doc()?.store.undo()? {
                 Some(c) => Ok(self.committed(c)),
                 None => Ok(Reply::NoChange),
@@ -746,16 +900,24 @@ impl Actor {
     }
 }
 
-/// Copies a rectangle with the metatable sources it references.
-fn copy(wb: &Workbook, sheet: SheetId, rect: Rect) -> ClipData {
+/// Copies a rectangle with the metatable sources it references and its
+/// edit text as TSV.
+fn copy(engine: &mut Engine, sheet: SheetId, rect: Rect) -> ClipData {
     let mut cells = Vec::new();
     let mut metas = Vec::new();
     let mut seen = HashSet::new();
+    let mut text = String::new();
     for (r, c) in rect.iter() {
-        let cell = wb
-            .cell(CellAddr::new(sheet, r, c))
-            .cloned()
-            .unwrap_or_default();
+        let addr = CellAddr::new(sheet, r, c);
+        if c == rect.c1 && r > rect.r1 {
+            text.push('\n');
+        } else if c > rect.c1 {
+            text.push('\t');
+        }
+        let edit = engine.edit_text(addr);
+        text.push_str(&edit.replace(['\t', '\n'], " "));
+        let wb = engine.workbook();
+        let cell = wb.cell(addr).cloned().unwrap_or_default();
         if let Some(h) = cell.meta
             && seen.insert(h)
             && let Some(src) = wb.meta(&h)
@@ -769,6 +931,7 @@ fn copy(wb: &Workbook, sheet: SheetId, rect: Rect) -> ClipData {
         cols: rect.c2 - rect.c1 + 1,
         cells,
         metas,
+        text,
     }
 }
 

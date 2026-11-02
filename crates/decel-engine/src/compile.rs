@@ -109,6 +109,7 @@ pub fn compile(sb: &Sandbox, src: &MetaSource) -> mlua::Result<Compiled> {
     let info = MetaInfo {
         kind: label("kind"),
         unit: label("unit"),
+        label: label("kind").or_else(|| src.members.first().map(|m| m.name.as_str().into())),
         has_value: hooks.contains_key("value"),
     };
     let style = match table.raw_get::<LuaValue>("style") {

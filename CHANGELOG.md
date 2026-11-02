@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 5 — Metatable UX
+
+#### Added
+
+- Per-metatable colours from a 16-hue OKLCH palette (light/dark), assigned by first appearance
+  and stored in the workbook; hatching beyond 16.
+- Peek quasimode (hold `` ` ``) with a legend; automatic metatable boundaries (`Ctrl+Shift+B`).
+- The code side (`F3`) with a flip animation, and the Metatable dock (`F4`): member list with
+  compile/runtime status, add hook/helper, signature header, Lua editor with per-member drafts,
+  live preview and `print` log, commit (`Ctrl+Enter`) and revert (`Esc`).
+- Copy-on-write edits by default; Shift-hover share-set outline with counts; Shift+click shared
+  edits; Detach.
+- Fill handle drag, fill down/right, auto-fill column/row with a confirmable preview.
+- Internal clipboard (values + metatables) and system clipboard as TSV; paste, paste values,
+  paste meta; external text goes through `parse`/`validate`.
+- "New metatable on selection" (`Ctrl+Shift+M`).
+
 ### Phase 4 — Grid UI
 
 #### Added

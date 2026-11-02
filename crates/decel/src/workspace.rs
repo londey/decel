@@ -10,22 +10,26 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use decel_engine::protocol::{Command, Event, Reply, WorkbookInfo};
+use decel_engine::protocol::{
+    ClipData, Command, Event, FillKind, MetaEditMode, MetaSummary, PasteMode, Reply, WorkbookInfo,
+};
 use decel_engine::{CommandError, DisplayCell, EngineHandle};
-use decel_model::{Axis, Cell, CellAddr, Rect, SheetId};
+use decel_model::{Axis, Cell, CellAddr, MetaHash, Rect, SheetId};
 use futures::StreamExt as _;
 use futures::channel::mpsc::UnboundedReceiver;
 use gpui::{
-    App, AppContext as _, Bounds, ClickEvent, Context, CursorStyle, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement as _, PathPromptOptions, Pixels, Point, Render,
-    ScrollEvent, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task,
-    Window, div, point, prelude::FluentBuilder as _, px,
+    App, AppContext as _, Bounds, ClickEvent, ClipboardItem, Context, CursorStyle, Entity,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyDownEvent, KeyUpEvent,
+    ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ParentElement as _, PathPromptOptions, Pixels, Point, Render, ScrollEvent, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Task, Window, div, point,
+    prelude::FluentBuilder as _, px,
 };
 use gpui_component::input::{Input, InputEvent, InputState, Position};
 use gpui_component::{ActiveTheme as _, TitleBar};
 
 use crate::actions::*;
+use crate::dock::Dock;
 use crate::grid::GridElement;
 use crate::recent;
 use crate::sizes::AxisSizes;
@@ -77,19 +81,19 @@ impl Selection {
     }
 }
 
-struct EditState {
+pub(crate) struct EditState {
     addr: CellAddr,
     input: Entity<InputState>,
     _sub: Subscription,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum Resize {
+pub(crate) enum Resize {
     Col { idx: u32, start: f64, origin: f64 },
     Row { idx: u32, start: f64, origin: f64 },
 }
 
-enum Banner {
+pub(crate) enum Banner {
     Locked { path: PathBuf, who: String },
     ReadOnly,
     Error(String),
@@ -134,6 +138,28 @@ impl FpsMeter {
     }
 }
 
+/// The share set under the pointer while Shift is held in the code side.
+pub struct ShareHighlight {
+    pub hash: MetaHash,
+    pub cells: std::collections::HashSet<CellAddr>,
+    pub total: usize,
+    pub other_sheets: usize,
+    pub at: Point<Pixels>,
+}
+
+/// An auto-fill waiting for confirmation.
+pub struct AutoFillPreview {
+    pub addr: CellAddr,
+    pub axis: Axis,
+    pub cells: Vec<CellAddr>,
+}
+
+/// Length of the code-side flip animation.
+pub const FLIP: Duration = Duration::from_millis(150);
+
+/// The key held for peek mode.
+pub const PEEK_KEY: &str = "`";
+
 pub enum Hit {
     Corner,
     ColHeader { col: u32, edge: Option<u32> },
@@ -143,41 +169,76 @@ pub enum Hit {
 }
 
 pub struct Workspace {
-    engine: EngineHandle,
-    replies: HashMap<u64, ReplyFn>,
-    pub focus: FocusHandle,
-    pub info: Option<WorkbookInfo>,
-    pub sheet: Option<SheetId>,
-    pub cols: AxisSizes,
-    pub rows: AxisSizes,
-    pub cache: HashMap<CellAddr, DisplayCell>,
-    subscribed: Option<(SheetId, Rect)>,
+    pub(crate) engine: EngineHandle,
+    pub(crate) replies: HashMap<u64, ReplyFn>,
+    pub(crate) focus: FocusHandle,
+    pub(crate) info: Option<WorkbookInfo>,
+    pub(crate) sheet: Option<SheetId>,
+    pub(crate) cols: AxisSizes,
+    pub(crate) rows: AxisSizes,
+    pub(crate) cache: HashMap<CellAddr, DisplayCell>,
+    pub(crate) subscribed: Option<(SheetId, Rect)>,
     /// Scroll offset of the body in content pixels (x, y).
-    pub scroll: (f64, f64),
-    pub sel: Selection,
-    edit: Option<EditState>,
+    pub(crate) scroll: (f64, f64),
+    pub(crate) sel: Selection,
+    pub(crate) edit: Option<EditState>,
     /// Edit text of the selected cell (shown in the edit bar).
-    bar_text: String,
-    hint: Option<String>,
-    edit_error: Option<String>,
-    tooltip: Option<(CellAddr, String, Point<Pixels>)>,
-    hover: Option<CellAddr>,
-    _hover_task: Option<Task<()>>,
-    resize: Option<Resize>,
-    resize_hover: bool,
-    dragging: bool,
-    pub grid_bounds: Rc<StdCell<Bounds<Pixels>>>,
-    pub status: Status,
-    banner: Option<Banner>,
-    show_recent: bool,
-    pub fps: Option<FpsMeter>,
-    _event_task: Task<()>,
-    _keys: Subscription,
+    pub(crate) bar_text: String,
+    pub(crate) hint: Option<String>,
+    pub(crate) edit_error: Option<String>,
+    pub(crate) tooltip: Option<(CellAddr, String, Point<Pixels>)>,
+    pub(crate) hover: Option<CellAddr>,
+    pub(crate) _hover_task: Option<Task<()>>,
+    pub(crate) resize: Option<Resize>,
+    pub(crate) resize_hover: bool,
+    pub(crate) dragging: bool,
+    pub(crate) grid_bounds: Rc<StdCell<Bounds<Pixels>>>,
+    pub(crate) status: Status,
+    pub(crate) banner: Option<Banner>,
+    pub(crate) show_recent: bool,
+    pub(crate) fps: Option<FpsMeter>,
+    pub(crate) _event_task: Task<()>,
+    pub(crate) _keys: Subscription,
+    pub(crate) dock: Dock,
+    pub(crate) dock_sync_pending: bool,
+    pub(crate) peek: bool,
+    pub(crate) code_side: bool,
+    /// Start of the code-side flip animation.
+    pub(crate) flip: Option<Instant>,
+    pub(crate) boundaries: bool,
+    pub(crate) legend: Option<Vec<MetaSummary>>,
+    pub(crate) shift: bool,
+    pub(crate) share_hl: Option<ShareHighlight>,
+    /// Target rectangle while dragging the fill handle.
+    pub(crate) fill_drag: Option<Rect>,
+    pub(crate) autofill: Option<AutoFillPreview>,
+    pub(crate) clip: Option<ClipData>,
+    pub(crate) _activation: Option<Subscription>,
 }
 
 fn trace(msg: impl FnOnce() -> String) {
     if std::env::var("DECEL_DEBUG_KEYS").is_ok() {
         eprintln!("{}", msg());
+    }
+}
+
+/// Extends a selection to include `(row, col)` along the dominant axis (the
+/// fill handle drags in one direction at a time).
+fn fill_target(sel: Rect, row: u32, col: u32) -> Rect {
+    let dr = if row > sel.r2 {
+        row - sel.r2
+    } else {
+        sel.r1.saturating_sub(row)
+    };
+    let dc = if col > sel.c2 {
+        col - sel.c2
+    } else {
+        sel.c1.saturating_sub(col)
+    };
+    if dr >= dc {
+        Rect::new(sel.r1.min(row), sel.c1, sel.r2.max(row), sel.c2)
+    } else {
+        Rect::new(sel.r1, sel.c1.min(col), sel.r2, sel.c2.max(col))
     }
 }
 
@@ -209,10 +270,20 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         let keys = cx.intercept_keystrokes(move |ev, window, cx| {
             let Some(ws) = weak.upgrade() else { return };
-            if ws.read(cx).edit.is_none() {
-                return;
-            }
-            let handled = ws.update(cx, |ws, cx| ws.on_editor_key(&ev.keystroke, window, cx));
+            let (editing, dock_focused) = {
+                let w = ws.read(cx);
+                (
+                    w.edit.is_some(),
+                    w.dock.open && w.dock.editor.read(cx).focus_handle(cx).is_focused(window),
+                )
+            };
+            let handled = if editing {
+                ws.update(cx, |ws, cx| ws.on_editor_key(&ev.keystroke, window, cx))
+            } else if dock_focused {
+                ws.update(cx, |ws, cx| ws.on_dock_key(&ev.keystroke, window, cx))
+            } else {
+                false
+            };
             if handled {
                 cx.stop_propagation();
             }
@@ -249,7 +320,30 @@ impl Workspace {
             fps,
             _event_task: event_task,
             _keys: keys,
+            dock: Dock::new(window, cx),
+            dock_sync_pending: false,
+            peek: false,
+            code_side: false,
+            flip: None,
+            boundaries: true,
+            legend: None,
+            shift: false,
+            share_hl: None,
+            fill_drag: None,
+            autofill: None,
+            clip: None,
+            _activation: None,
         };
+        this.init_dock(window, cx);
+        // Losing window focus releases peek and the share modifier.
+        this._activation = Some(cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.peek = false;
+                this.shift = false;
+                this.share_hl = None;
+                cx.notify();
+            }
+        }));
         match open {
             Some(p) if p.exists() => this.open_path(p, false, window, cx),
             Some(p) => this.new_file(Some(p), window, cx),
@@ -266,7 +360,7 @@ impl Workspace {
         self.engine.send(cmd)
     }
 
-    fn request(
+    pub(crate) fn request(
         &mut self,
         cmd: Command,
         f: impl FnOnce(
@@ -532,7 +626,7 @@ impl Workspace {
         self.ensure_subscribed();
     }
 
-    fn addr(&self, row: u32, col: u32) -> Option<CellAddr> {
+    pub(crate) fn addr(&self, row: u32, col: u32) -> Option<CellAddr> {
         Some(CellAddr::new(self.sheet?, row, col))
     }
 
@@ -757,6 +851,15 @@ impl Workspace {
             f.key_at = Some(Instant::now());
         }
         let k = &e.keystroke;
+        if k.key == PEEK_KEY && !k.modifiers.control && !k.modifiers.alt && self.edit.is_none() {
+            if !self.peek {
+                self.peek = true;
+                self.load_legend();
+                cx.notify();
+            }
+            cx.stop_propagation();
+            return;
+        }
         if std::env::var("DECEL_DEBUG_KEYS").is_ok() {
             eprintln!(
                 "grid key: {:?} char={:?} editing={}",
@@ -796,6 +899,242 @@ impl Workspace {
             label: format!("Clear {n} cell(s)"),
             cells,
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // Metatable tooling (Phase 5)
+
+    /// `Ctrl+Enter` commits, `Esc` reverts the selected member.
+    fn on_dock_key(
+        &mut self,
+        k: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match k.key.as_str() {
+            "enter" if k.modifiers.control => {
+                self.commit_meta(window, cx);
+                true
+            }
+            "escape" => {
+                self.revert_member(window, cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn load_legend(&mut self) {
+        let Some(sheet) = self.sheet else { return };
+        self.request(Command::MetaSummary { sheet }, |this, r, _, cx| {
+            if let Ok(Reply::Summary(s)) = r {
+                this.legend = Some(s);
+                cx.notify();
+            }
+        });
+    }
+
+    fn on_key_up(&mut self, e: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if e.keystroke.key == PEEK_KEY && self.peek {
+            self.peek = false;
+            cx.notify();
+        }
+    }
+
+    fn on_modifiers(
+        &mut self,
+        e: &ModifiersChangedEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.shift = e.modifiers.shift;
+        if !self.shift && self.share_hl.is_some() {
+            self.share_hl = None;
+            cx.notify();
+        }
+    }
+
+    fn toggle_code_side(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.code_side = !self.code_side;
+        self.flip = Some(Instant::now());
+        if self.code_side {
+            self.load_legend();
+            self.dock.open = true;
+            self.dock_follow_selection(window, cx);
+        } else {
+            self.share_hl = None;
+        }
+        cx.notify();
+    }
+
+    /// Progress of the flip animation (`None` when not flipping).
+    pub(crate) fn flip_progress(&self) -> Option<f32> {
+        let t = self.flip?.elapsed().as_secs_f32() / FLIP.as_secs_f32();
+        (t < 1.0).then_some(t)
+    }
+
+    fn highlight_share(
+        &mut self,
+        hash: Option<MetaHash>,
+        at: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(h) = hash else {
+            if self.share_hl.take().is_some() {
+                cx.notify();
+            }
+            return;
+        };
+        if let Some(hl) = self.share_hl.as_mut()
+            && hl.hash == h
+        {
+            hl.at = at;
+            cx.notify();
+            return;
+        }
+        let sheet = self.sheet;
+        self.shift = true;
+        self.request(Command::QueryShareSet { hash: h }, move |this, r, _, cx| {
+            if !this.shift || !this.code_side {
+                return;
+            }
+            if let Ok(Reply::ShareSet(cells)) = r {
+                let other_sheets = cells.iter().filter(|a| Some(a.sheet) != sheet).count();
+                this.share_hl = Some(ShareHighlight {
+                    hash: h,
+                    total: cells.len(),
+                    other_sheets,
+                    cells: cells.into_iter().collect(),
+                    at,
+                });
+                cx.notify();
+            }
+        });
+    }
+
+    /// The fill handle: a small square at the selection's bottom-right.
+    pub(crate) fn fill_handle(&self) -> Option<Point<Pixels>> {
+        if self.sel.mode != SelMode::Cells || self.code_side {
+            return None;
+        }
+        let r = self.sel.rect();
+        let b = self.cell_bounds(r.r2, r.c2);
+        Some(point(b.origin.x + b.size.width, b.origin.y + b.size.height))
+    }
+
+    fn on_fill_handle(&self, p: Point<Pixels>) -> bool {
+        self.fill_handle()
+            .is_some_and(|h| (p.x - h.x).abs() <= px(5.) && (p.y - h.y).abs() <= px(5.))
+    }
+
+    fn fill(&mut self, kind: FillKind, cx: &mut Context<Self>) {
+        let Some(sheet) = self.sheet else { return };
+        let dst = self.sel.rect();
+        if dst.rows() * dst.cols() > 1_000_000 {
+            return;
+        }
+        self.send(Command::Fill {
+            kind,
+            sheet,
+            src: dst,
+            dst,
+            with_values: false,
+            preview: false,
+        });
+        cx.notify();
+    }
+
+    fn auto_fill(&mut self, axis: Axis, cx: &mut Context<Self>) {
+        let Some(addr) = self.addr(self.sel.cursor.0, self.sel.cursor.1) else {
+            return;
+        };
+        self.request(
+            Command::AutoFill {
+                addr,
+                axis,
+                preview: true,
+            },
+            move |this, r, _, cx| {
+                if let Ok(Reply::Addresses(cells)) = r {
+                    this.autofill =
+                        (!cells.is_empty()).then_some(AutoFillPreview { addr, axis, cells });
+                    if this.autofill.is_none() {
+                        this.status.last = "Auto-fill: nothing to fill".into();
+                    }
+                    cx.notify();
+                }
+            },
+        );
+        cx.notify();
+    }
+
+    fn apply_autofill(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.autofill.take() {
+            self.send(Command::AutoFill {
+                addr: p.addr,
+                axis: p.axis,
+                preview: false,
+            });
+            cx.notify();
+        }
+    }
+
+    fn cancel(&mut self, cx: &mut Context<Self>) {
+        self.autofill = None;
+        self.fill_drag = None;
+        self.share_hl = None;
+        self.show_recent = false;
+        cx.notify();
+    }
+
+    /// The selection clipped to cached data (whole rows/columns are huge).
+    fn copy_rect(&self) -> Option<Rect> {
+        let sheet = self.sheet?;
+        let r = self.sel.rect();
+        let (mut max_r, mut max_c) = (r.r1, r.c1);
+        for a in self.cache.keys().filter(|a| a.sheet == sheet) {
+            max_r = max_r.max(a.row);
+            max_c = max_c.max(a.col);
+        }
+        Some(Rect::new(r.r1, r.c1, r.r2.min(max_r), r.c2.min(max_c)))
+    }
+
+    fn copy(&mut self, cut: bool, _cx: &mut Context<Self>) {
+        let (Some(sheet), Some(rect)) = (self.sheet, self.copy_rect()) else {
+            return;
+        };
+        self.request(Command::Copy { sheet, rect }, move |this, r, _, cx| {
+            if let Ok(Reply::Clip(clip)) = r {
+                cx.write_to_clipboard(ClipboardItem::new_string(clip.text.clone()));
+                this.status.last = format!("Copied {} × {}", clip.rows, clip.cols);
+                this.clip = Some(clip);
+                if cut {
+                    this.clear_cells();
+                }
+                cx.notify();
+            }
+        });
+    }
+
+    fn paste(&mut self, mode: PasteMode, cx: &mut Context<Self>) {
+        let Some(at) = self.addr(self.sel.rect().r1, self.sel.rect().c1) else {
+            return;
+        };
+        let text = cx.read_from_clipboard().and_then(|i| i.text());
+        let internal = self
+            .clip
+            .as_ref()
+            .filter(|c| text.is_none() || text.as_deref() == Some(c.text.as_str()))
+            .cloned();
+        match (internal, text) {
+            (Some(clip), _) => {
+                self.send(Command::Paste { at, clip, mode });
+            }
+            (None, Some(text)) if mode != PasteMode::Meta => {
+                self.send(Command::PasteText { at, text });
+            }
+            _ => {}
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -974,6 +1313,20 @@ impl Workspace {
                 }
                 self.dragging = true;
             }
+            Hit::Cell { .. } if self.on_fill_handle(e.position) => {
+                self.fill_drag = Some(self.sel.rect());
+            }
+            Hit::Cell { row, col } if self.code_side => {
+                self.sel = Selection::at(row, col);
+                if let Some(addr) = self.addr(row, col) {
+                    let mode = if e.modifiers.shift {
+                        MetaEditMode::Shared
+                    } else {
+                        MetaEditMode::Cow
+                    };
+                    self.dock_target(addr, mode, window, cx);
+                }
+            }
             Hit::Cell { row, col } => {
                 if e.modifiers.shift {
                     self.sel.cursor = (row, col);
@@ -1017,8 +1370,34 @@ impl Workspace {
             self.resize_hover = resize_hover;
             cx.notify();
         }
+        if self.fill_drag.is_some() && e.pressed_button == Some(MouseButton::Left) {
+            if let Hit::Cell { row, col } = hit {
+                self.fill_drag = Some(fill_target(self.sel.rect(), row, col));
+                cx.notify();
+            }
+            return;
+        }
         if self.dragging && e.pressed_button == Some(MouseButton::Left) {
             self.drag_to(e.position, cx);
+            return;
+        }
+        if self.code_side && e.modifiers.shift {
+            let hash = match hit {
+                Hit::Cell { row, col } => self
+                    .addr(row, col)
+                    .and_then(|a| self.cache.get(&a))
+                    .and_then(|d| d.hash),
+                _ => None,
+            };
+            self.highlight_share(hash, e.position, cx);
+        } else if self.share_hl.is_some() {
+            self.shift = e.modifiers.shift;
+            self.share_hl = None;
+            cx.notify();
+        }
+        if self.code_side {
+            // Value tooltips are noise on the code side.
+            self.hover = None;
             return;
         }
         // Hover tooltips.
@@ -1088,8 +1467,23 @@ impl Workspace {
         cx.notify();
     }
 
-    fn on_mouse_up(&mut self, _e: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_up(&mut self, e: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.dragging = false;
+        if let (Some(dst), Some(sheet)) = (self.fill_drag.take(), self.sheet) {
+            let src = self.sel.rect();
+            if dst != src {
+                self.send(Command::Fill {
+                    kind: FillKind::Drag,
+                    sheet,
+                    src,
+                    dst,
+                    with_values: e.modifiers.control,
+                    preview: false,
+                });
+                self.sel.anchor = (dst.r1, dst.c1);
+                self.sel.cursor = (dst.r2, dst.c2);
+            }
+        }
         if let (Some(r), Some(sheet)) = (self.resize.take(), self.sheet) {
             let (axis, idx) = match r {
                 Resize::Col { idx, .. } => (Axis::Col, idx),
@@ -1320,7 +1714,20 @@ impl Workspace {
                 .unwrap_or_default();
             format!("{:.0} fps{key}", f.fps())
         });
+        let autofill = self.autofill.as_ref().map(|a| {
+            format!(
+                "Auto-fill {} cells — Enter to apply, Esc to cancel",
+                a.cells.len()
+            )
+        });
+        let last = (!status.last.is_empty()).then(|| status.last.clone());
         row.child(div().flex_1())
+            .when_some(autofill, |d, t| {
+                d.child(div().px_3().text_color(theme.warning).child(t))
+            })
+            .when_some(last.filter(|_| self.autofill.is_none()), |d, t| {
+                d.child(div().px_3().text_color(theme.muted_foreground).child(t))
+            })
             .when_some(fps, |d, f| d.child(div().px_3().child(f)))
             .child(div().px_3().text_color(theme.muted_foreground).child(undo))
             .child(
@@ -1457,6 +1864,100 @@ impl Workspace {
         Some(list)
     }
 
+    /// Floating legend for peek and the code side: swatch, kind, unit, count.
+    fn render_legend(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if !(self.peek || self.code_side) {
+            return None;
+        }
+        let legend = self.legend.as_ref()?;
+        let theme = cx.theme();
+        let dark = theme.is_dark();
+        let colors = self.info.as_ref().map(|i| &i.meta_colors);
+        let mut panel = div()
+            .absolute()
+            .right(px(16.))
+            .bottom(px(16.))
+            .max_w(px(320.))
+            .p_2()
+            .rounded_md()
+            .shadow_lg()
+            .bg(theme.popover)
+            .border_1()
+            .border_color(theme.border)
+            .flex()
+            .flex_col()
+            .gap_1();
+        if legend.is_empty() {
+            panel = panel.child(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .child("No metatables on this sheet"),
+            );
+        }
+        for item in legend.iter().take(24) {
+            let idx = colors.and_then(|c| c.get(&item.hash)).copied().unwrap_or(0);
+            let swatch = crate::palette::color(idx, dark);
+            let name = item.kind.clone().unwrap_or_else(|| "(no kind)".into());
+            let unit = item
+                .unit
+                .clone()
+                .map(|u| format!(" [{u}]"))
+                .unwrap_or_default();
+            let count = if item.total > item.count {
+                format!("{} (+{} elsewhere)", item.count, item.total - item.count)
+            } else {
+                item.count.to_string()
+            };
+            panel = panel.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .w(px(14.))
+                            .h(px(14.))
+                            .rounded_sm()
+                            .bg(swatch)
+                            .when(crate::palette::hatched(idx), |d| {
+                                d.border_2().border_color(theme.foreground.opacity(0.5))
+                            }),
+                    )
+                    .child(div().flex_1().child(format!("{name}{unit}")))
+                    .child(div().text_color(theme.muted_foreground).child(count)),
+            );
+        }
+        Some(panel)
+    }
+
+    fn render_share_label(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let hl = self.share_hl.as_ref()?;
+        let g = self.grid_bounds.get();
+        let theme = cx.theme();
+        let text = if hl.other_sheets > 0 {
+            format!(
+                "{} cells ({} on other sheets) · Shift+click to edit all",
+                hl.total, hl.other_sheets
+            )
+        } else {
+            format!("{} cells · Shift+click to edit all", hl.total)
+        };
+        Some(
+            div()
+                .absolute()
+                .left(hl.at.x - g.origin.x + px(14.))
+                .top(hl.at.y - g.origin.y - px(28.))
+                .px_2()
+                .py_0p5()
+                .rounded_md()
+                .bg(theme.foreground)
+                .text_color(theme.background)
+                .text_xs()
+                .child(text),
+        )
+    }
+
     fn render_tooltip(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let (_, text, pos) = self.tooltip.as_ref()?;
         let g = self.grid_bounds.get();
@@ -1489,6 +1990,26 @@ impl Focusable for Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_subscribed();
+        // The dock follows the selection (after this frame).
+        let cursor_addr = self.addr(self.sel.cursor.0, self.sel.cursor.1);
+        if self.dock.open
+            && !self.dock_sync_pending
+            && self.edit.is_none()
+            && cursor_addr.is_some()
+            && self.dock.target != cursor_addr
+        {
+            self.dock_sync_pending = true;
+            cx.defer_in(window, |this, window, cx| {
+                this.dock_sync_pending = false;
+                this.dock_follow_selection(window, cx);
+            });
+        }
+        if self.flip.is_some() && self.flip_progress().is_none() {
+            self.flip = None;
+        }
+        if self.flip.is_some() {
+            window.request_animation_frame();
+        }
         let theme = cx.theme().clone();
         let cursor = if self.resize.is_some() || self.resize_hover {
             CursorStyle::ResizeLeftRight
@@ -1508,78 +2029,144 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.prompt_open(window, cx)))
             .on_action(cx.listener(|this, _: &SaveAs, window, cx| this.prompt_save_as(window, cx)))
             .on_action(cx.listener(|_, _: &Quit, _, cx| cx.quit()))
+            .on_action(
+                cx.listener(|this, _: &ToggleCodeSide, window, cx| {
+                    this.toggle_code_side(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &ToggleDock, window, cx| this.toggle_dock(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleBoundaries, _, cx| {
+                this.boundaries = !this.boundaries;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &NewMetaOnSelection, window, cx| {
+                this.new_meta_on_selection(window, cx)
+            }))
             .child(TitleBar::new().child(self.render_title(cx)))
             .when_some(self.render_banner(cx), |d, b| d.child(b))
             .child(self.render_edit_bar(cx))
             .child(
                 div()
-                    .id("grid")
-                    .relative()
                     .flex_1()
-                    .overflow_hidden()
-                    .key_context(GRID)
-                    .track_focus(&self.focus)
-                    .cursor(cursor)
-                    .on_key_down(cx.listener(Self::on_grid_key))
-                    .on_action(
-                        cx.listener(|this, _: &MoveUp, _, cx| this.move_by(-1, 0, false, cx)),
+                    .flex()
+                    .flex_row()
+                    .min_h(px(0.))
+                    .child(
+                        div()
+                            .id("grid")
+                            .h_full()
+                            .relative()
+                            .flex_1()
+                            .overflow_hidden()
+                            .key_context(GRID)
+                            .track_focus(&self.focus)
+                            .cursor(cursor)
+                            .on_key_down(cx.listener(Self::on_grid_key))
+                            .on_key_up(cx.listener(Self::on_key_up))
+                            .on_modifiers_changed(cx.listener(Self::on_modifiers))
+                            .on_action(cx.listener(|this, _: &FillDown, _, cx| {
+                                this.fill(FillKind::Down, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &FillRight, _, cx| {
+                                this.fill(FillKind::Right, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &AutoFillColumn, _, cx| {
+                                this.auto_fill(Axis::Row, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &AutoFillRow, _, cx| {
+                                this.auto_fill(Axis::Col, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &Cancel, _, cx| this.cancel(cx)))
+                            .on_action(
+                                cx.listener(|this, _: &CopyCells, _, cx| this.copy(false, cx)),
+                            )
+                            .on_action(cx.listener(|this, _: &CutCells, _, cx| this.copy(true, cx)))
+                            .on_action(cx.listener(|this, _: &PasteCells, _, cx| {
+                                this.paste(PasteMode::All, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &PasteValues, _, cx| {
+                                this.paste(PasteMode::Values, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &PasteMeta, _, cx| {
+                                this.paste(PasteMode::Meta, cx)
+                            }))
+                            .on_action(
+                                cx.listener(|this, _: &MoveUp, _, cx| {
+                                    this.move_by(-1, 0, false, cx)
+                                }),
+                            )
+                            .on_action(cx.listener(|this, _: &MoveDown, _, cx| {
+                                this.move_by(1, 0, false, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &MoveLeft, _, cx| {
+                                this.move_by(0, -1, false, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &MoveRight, _, cx| {
+                                this.move_by(0, 1, false, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &SelectUp, _, cx| {
+                                this.move_by(-1, 0, true, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &SelectDown, _, cx| {
+                                this.move_by(1, 0, true, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &SelectLeft, _, cx| {
+                                this.move_by(0, -1, true, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &SelectRight, _, cx| {
+                                this.move_by(0, 1, true, cx)
+                            }))
+                            .on_action(
+                                cx.listener(|this, _: &JumpUp, _, _| this.jump(-1, 0, false)),
+                            )
+                            .on_action(
+                                cx.listener(|this, _: &JumpDown, _, _| this.jump(1, 0, false)),
+                            )
+                            .on_action(
+                                cx.listener(|this, _: &JumpLeft, _, _| this.jump(0, -1, false)),
+                            )
+                            .on_action(
+                                cx.listener(|this, _: &JumpRight, _, _| this.jump(0, 1, false)),
+                            )
+                            .on_action(cx.listener(|this, _: &PageUp, _, cx| this.page(-1, cx)))
+                            .on_action(cx.listener(|this, _: &PageDown, _, cx| this.page(1, cx)))
+                            .on_action(cx.listener(|this, _: &RowStart, _, cx| {
+                                let r = this.sel.cursor.0;
+                                this.set_cursor(r, 0, false, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &RowEnd, _, _| {
+                                let r = this.sel.cursor.0;
+                                this.sel.cursor = (r, 0);
+                                this.jump(0, 1, false)
+                            }))
+                            .on_action(cx.listener(|this, _: &SheetStart, _, cx| {
+                                this.set_cursor(0, 0, false, cx)
+                            }))
+                            .on_action(cx.listener(|this, _: &EditCell, window, cx| {
+                                if this.autofill.is_some() {
+                                    this.apply_autofill(cx);
+                                } else {
+                                    this.begin_edit(None, window, cx)
+                                }
+                            }))
+                            .on_action(cx.listener(|this, _: &ClearCells, _, _| this.clear_cells()))
+                            .on_action(cx.listener(|this, _: &Undo, _, _| {
+                                this.send(Command::Undo);
+                            }))
+                            .on_action(cx.listener(|this, _: &Redo, _, _| {
+                                this.send(Command::Redo);
+                            }))
+                            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+                            .on_mouse_move(cx.listener(Self::on_mouse_move))
+                            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+                            .on_scroll(cx.listener(Self::on_scroll))
+                            .child(GridElement::new(cx.entity(), self.grid_bounds.clone()))
+                            .when_some(self.render_editor_overlay(cx), |d, e| d.child(e))
+                            .when_some(self.render_tooltip(cx), |d, t| d.child(t))
+                            .when_some(self.render_legend(cx), |d, l| d.child(l))
+                            .when_some(self.render_share_label(cx), |d, l| d.child(l)),
                     )
-                    .on_action(
-                        cx.listener(|this, _: &MoveDown, _, cx| this.move_by(1, 0, false, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &MoveLeft, _, cx| this.move_by(0, -1, false, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &MoveRight, _, cx| this.move_by(0, 1, false, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &SelectUp, _, cx| this.move_by(-1, 0, true, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &SelectDown, _, cx| this.move_by(1, 0, true, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &SelectLeft, _, cx| this.move_by(0, -1, true, cx)),
-                    )
-                    .on_action(
-                        cx.listener(|this, _: &SelectRight, _, cx| this.move_by(0, 1, true, cx)),
-                    )
-                    .on_action(cx.listener(|this, _: &JumpUp, _, _| this.jump(-1, 0, false)))
-                    .on_action(cx.listener(|this, _: &JumpDown, _, _| this.jump(1, 0, false)))
-                    .on_action(cx.listener(|this, _: &JumpLeft, _, _| this.jump(0, -1, false)))
-                    .on_action(cx.listener(|this, _: &JumpRight, _, _| this.jump(0, 1, false)))
-                    .on_action(cx.listener(|this, _: &PageUp, _, cx| this.page(-1, cx)))
-                    .on_action(cx.listener(|this, _: &PageDown, _, cx| this.page(1, cx)))
-                    .on_action(cx.listener(|this, _: &RowStart, _, cx| {
-                        let r = this.sel.cursor.0;
-                        this.set_cursor(r, 0, false, cx)
-                    }))
-                    .on_action(cx.listener(|this, _: &RowEnd, _, _| {
-                        let r = this.sel.cursor.0;
-                        this.sel.cursor = (r, 0);
-                        this.jump(0, 1, false)
-                    }))
-                    .on_action(
-                        cx.listener(|this, _: &SheetStart, _, cx| this.set_cursor(0, 0, false, cx)),
-                    )
-                    .on_action(cx.listener(|this, _: &EditCell, window, cx| {
-                        this.begin_edit(None, window, cx)
-                    }))
-                    .on_action(cx.listener(|this, _: &ClearCells, _, _| this.clear_cells()))
-                    .on_action(cx.listener(|this, _: &Undo, _, _| {
-                        this.send(Command::Undo);
-                    }))
-                    .on_action(cx.listener(|this, _: &Redo, _, _| {
-                        this.send(Command::Redo);
-                    }))
-                    .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
-                    .on_mouse_move(cx.listener(Self::on_mouse_move))
-                    .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                    .on_scroll(cx.listener(Self::on_scroll))
-                    .child(GridElement::new(cx.entity(), self.grid_bounds.clone()))
-                    .when_some(self.render_editor_overlay(cx), |d, e| d.child(e))
-                    .when_some(self.render_tooltip(cx), |d, t| d.child(t)),
+                    .when_some(self.render_dock(cx), |d, dock| d.child(dock)),
             )
             .child(self.render_tabs(cx))
             .when_some(self.render_recent(cx), |d, r| d.child(r))

@@ -15,6 +15,7 @@ decel-model.workspace = true
 decel-store.workspace = true
 mlua.workspace = true
 crossbeam-channel.workspace = true
+serde_json.workspace = true
 rstar.workspace = true
 thiserror.workspace = true
 
