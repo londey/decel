@@ -132,6 +132,12 @@ pub enum Command {
     Tooltip {
         addr: CellAddr,
     },
+    /// Ctrl+arrow target from `from` in direction `(dr, dc)`.
+    DataEdge {
+        from: CellAddr,
+        dr: i64,
+        dc: i64,
+    },
     /// Final values of a rectangle (charts, CSV export, tests).
     Values {
         sheet: SheetId,

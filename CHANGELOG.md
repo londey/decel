@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 4 — Grid UI
+
+#### Added
+
+- The decel window: client-side title bar with a file menu and recent files, edit bar (address,
+  edit text, hint, rejection message), virtualised custom-painted grid with frozen headers, sheet
+  tabs and a status bar (undo label, recalc progress, optional FPS/latency overlay with
+  `DECEL_DEBUG_FPS=1`).
+- Grid rendering: style colours and alignment, text spill into empty neighbours, ellipsis,
+  error/warning corner markers, selection and cursor.
+- Keyboard navigation (arrows, Ctrl+arrows to data edges, PgUp/PgDn, Home/End), mouse and drag
+  selection with auto-scroll, whole row/column selection.
+- In-cell editing with type-to-edit, F2/double-click, Enter/Tab/Esc, rejection display and
+  optimistic updates; hover tooltips; column/row resize and double-click auto-fit.
+- New/Open/Save As, recent files, untitled workbooks kept on disk, lock banner with read-only
+  open, theme following the OS.
+- `decel-cli demo` and `decel-cli gen-big`; `scripts/ui-drive.sh` for headless UI screenshots.
+
 ### Phase 3 — Engine actor
 
 #### Added

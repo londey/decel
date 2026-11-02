@@ -13,11 +13,17 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 decel-engine.workspace = true
+decel-model.workspace = true
+decel-store.workspace = true
+directories.workspace = true
+futures.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component = { workspace = true, features = ["tree-sitter-lua"] }
-anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `decel-cli eval file.decel [--sheet NAME] [--dump csv|values]`
+//! Development CLI for decel.
 //!
-//! Opens a workbook read-only, recalculates everything and prints one sheet
-//! as CSV: displayed text (`csv`, the default) or final values in edit form
-//! (`values`). For end-to-end tests and debugging.
+//! - `decel-cli eval file.decel [--sheet NAME] [--dump csv|values]` opens a
+//!   workbook read-only, recalculates everything and prints one sheet as CSV:
+//!   displayed text (`csv`, the default) or final values in edit form
+//!   (`values`).
+//! - `decel-cli demo out.decel` writes the DESIGN §4.7/§4.8 examples.
+//! - `decel-cli gen-big out.decel ROWS COLS` writes a large numeric sheet for
+//!   scrolling benchmarks.
 
 use std::path::PathBuf;
+
+mod demo;
 
 use anyhow::{Context, Result, bail};
 use decel_engine::{Engine, Limits};
 use decel_model::{CellAddr, CellStorage};
 use decel_store::Store;
 
-const USAGE: &str = "usage: decel-cli eval <file.decel> [--sheet NAME] [--dump csv|values]";
+const USAGE: &str = "usage: decel-cli eval <file.decel> [--sheet NAME] [--dump csv|values]
+       decel-cli demo <out.decel>
+       decel-cli gen-big <out.decel> <rows> <cols>";
 
 enum Dump {
     Display,
@@ -30,9 +38,20 @@ fn csv_field(s: &str) -> String {
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() != Some("eval") {
-        bail!(USAGE);
+    match args.next().as_deref() {
+        Some("eval") => eval(args),
+        Some("demo") => demo::write(&PathBuf::from(args.next().context(USAGE)?)),
+        Some("gen-big") => {
+            let path = PathBuf::from(args.next().context(USAGE)?);
+            let rows: u32 = args.next().context(USAGE)?.parse()?;
+            let cols: u32 = args.next().context(USAGE)?.parse()?;
+            demo::big(&path, rows, cols)
+        }
+        _ => bail!(USAGE),
     }
+}
+
+fn eval(mut args: impl Iterator<Item = String>) -> Result<()> {
     let path = PathBuf::from(args.next().context(USAGE)?);
     let mut sheet_name = None;
     let mut dump = Dump::Display;

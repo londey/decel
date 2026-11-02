@@ -12,7 +12,8 @@ ARG FLETCHER_VERSION=0.5.8
 
 # GPUI build deps (DESIGN §10.1) plus Mesa Vulkan drivers and fonts so the
 # window can actually render when the host GPU and Wayland/X11 sockets are
-# passed through.
+# passed through. Xvfb/xdotool/imagemagick let scripts/ui-drive.sh render the
+# UI headlessly (lavapipe) and screenshot it.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential clang cmake pkg-config \
@@ -22,6 +23,7 @@ RUN apt-get update \
       libvulkan1 libvulkan-dev mesa-vulkan-drivers vulkan-tools \
       libgl1 libegl1 libasound2-dev \
       fonts-dejavu fonts-noto-core fonts-jetbrains-mono \
+      xvfb xauth xdotool imagemagick \
       xz-utils \
  && rm -rf /var/lib/apt/lists/*
 

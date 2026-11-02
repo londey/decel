@@ -514,6 +514,14 @@ impl Actor {
                 })
             }
             Command::Tooltip { addr } => Ok(Reply::Tooltip(self.doc()?.engine.tooltip(addr))),
+            Command::DataEdge { from, dr, dc } => {
+                Ok(Reply::Addresses(vec![crate::nav::data_edge(
+                    self.doc()?.engine.workbook(),
+                    from,
+                    dr,
+                    dc,
+                )]))
+            }
             Command::Values { sheet, rect } => {
                 let engine = &mut self.doc()?.engine;
                 let addrs: Vec<CellAddr> = engine

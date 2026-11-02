@@ -12,6 +12,7 @@ pub mod deps;
 mod display;
 mod engine;
 pub mod fill;
+pub mod nav;
 pub mod protocol;
 pub mod sandbox;
 pub mod stdlib;
