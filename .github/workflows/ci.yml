@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  build:
+    name: clippy + test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux GPUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libx11-dev \
+            libfontconfig-dev libfreetype-dev libzstd-dev \
+            libvulkan-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo nextest run --workspace
+      - name: Install path (Spike C)
+        run: cargo install --path crates/decel --locked --root ${{ runner.temp }}/decel-install
+
+  publish-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux GPUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libx11-dev \
+            libfontconfig-dev libfreetype-dev libzstd-dev \
+            libvulkan-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --workspace --dry-run
