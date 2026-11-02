@@ -1,0 +1,47 @@
+# cargo-deny configuration (DESIGN §10.3).
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "warn"
+# Unmaintained transitive crates come from GPUI and are outside our control;
+# only fail on crates we depend on directly.
+unmaintained = "workspace"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+    "CC0-1.0",
+    "BSL-1.0",
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+# GPUI pulls in several majors of `windows`/`objc` and friends; report duplicates
+# but don't fail on them (IMPLEMENTATION_PLAN Phase 0, task 3).
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
