@@ -1,1 +1,10 @@
 architecture.pdf
+
+# Claude Code config dir (CLAUDE_CONFIG_DIR in the devcontainer).
+# Only shared project config is committed; credentials and session state are not.
+.claude/*
+!.claude/settings.json
+!.claude/agents/
+!.claude/commands/
+!.claude/skills/
+.claude/skills/synced

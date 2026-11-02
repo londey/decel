@@ -1,0 +1,46 @@
+{
+  "name": "decel",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+
+  // GPU + display passthrough so GPUI windows open on the host desktop.
+  // Wayland is preferred; X11 (XWayland) is the fallback.
+  "runArgs": ["--device=/dev/dri", "--security-opt=label=disable"],
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+    "source=${localEnv:XDG_RUNTIME_DIR}/${localEnv:WAYLAND_DISPLAY:wayland-0},target=/run/user/1000/${localEnv:WAYLAND_DISPLAY:wayland-0},type=bind",
+    "source=decel-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    "source=decel-target,target=${containerWorkspaceFolder}/target,type=volume"
+  ],
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY}",
+    "WAYLAND_DISPLAY": "${localEnv:WAYLAND_DISPLAY:wayland-0}",
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "CARGO_TARGET_DIR": "${containerWorkspaceFolder}/target",
+    // Keep Claude Code's config, credentials and memory in the workspace so
+    // they survive container rebuilds. Private files are gitignored.
+    "CLAUDE_CONFIG_DIR": "${containerWorkspaceFolder}/.claude"
+  },
+  // The mounts above create /run/user/1000 as root; Wayland clients need it
+  // owned by the user with mode 0700. Volumes are also created root-owned.
+  "postStartCommand": "sudo chown vscode:vscode /run/user/1000 /usr/local/cargo/registry ${containerWorkspaceFolder}/target && chmod 0700 /run/user/1000",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "myriad-dreamin.tinymist",
+        "nefrob.vscode-just-syntax",
+        "sumneko.lua",
+        "bierner.markdown-mermaid"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  }
+}

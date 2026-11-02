@@ -51,8 +51,8 @@ Phases 8 and 9 are independent and can run in parallel worktrees.
 1. **Workspace skeleton** (§9.1): `crates/decel-model`, `decel-store`, `decel-engine`, `decel-io`, `decel`. Use workspace-level `[workspace.package]` (version `0.1.0`, edition 2024, `license = "MIT OR Apache-2.0"`, `repository`, `rust-version`) and `[workspace.dependencies]` with exact versions for GPUI-related crates.
 2. **Licence files:** `LICENSE-MIT`, `LICENSE-APACHE`, README licence section, SPDX headers.
 3. **`deny.toml`:** licence allowlist (§10.3), ban duplicate major versions of `windows`/`objc` where practical (warn only), deny git sources.
-4. **CI** (Forgejo Actions, GitHub-Actions-compatible YAML in `.forgejo/workflows/ci.yml`). Jobs: fmt, clippy, test, deny, `publish --dry-run`. The matrix is `ubuntu-latest` plus a Windows runner (document how to register a Windows runner on the Legion laptop; mark the Windows job `continue-on-error` until a runner exists).
-5. **Devcontainer** (`.devcontainer/`): Rust stable, the GPUI Linux build dependencies (§10.1), `cargo-deny`, `cargo-nextest`, `typst`. Windows builds happen natively, not in the container.
+4. **CI** (GitHub Actions, `.github/workflows/ci.yml`). Jobs: fmt, clippy, test, deny, `publish --dry-run`. The matrix is the hosted `ubuntu-latest` and `windows-latest` runners.
+5. **Devcontainer** (`.devcontainer/`, done): Rust stable on Debian trixie, the GPUI Linux build dependencies (§10.1), Mesa Vulkan, `cargo-deny`, `cargo-nextest`, `just`, and `typst` with the cetz/fletcher diagram packages pre-fetched. The host GPU (`/dev/dri`) and the Wayland and X11 sockets are passed through, so GPUI windows open on the host desktop. Windows builds happen natively, not in the container.
 6. **Spike A — GPUI:** in `crates/decel`, open a window with gpui-component, a 1 000 × 50 dummy grid painted by a custom element, and a gpui-component code editor with Lua highlighting (`tree-sitter-lua` feature). Record the exact `gpui-component` and `gpui-pre` versions that work in `DESIGN.md §2 D3`.
 7. **Spike B — mlua:** in `decel-engine`, create a vendored Lua 5.4 VM with the `send` feature, move it to another thread, run code with an instruction-count hook and a memory limit, and test that an infinite loop is interrupted.
 8. **Spike C — install path:** `cargo install --path crates/decel` succeeds on Linux (CachyOS) **and** Windows (MSVC), and the window opens on both.
@@ -76,7 +76,7 @@ Phases 8 and 9 are independent and can run in parallel worktrees.
 
 ### Acceptance criteria
 
-- [ ] CI is green on Linux. The Windows job is green, or documented as pending a runner, with Spike C done manually on Windows.
+- [ ] CI is green on Linux and Windows. Spike C (window opens) is checked manually on Windows.
 - [ ] `cargo publish --workspace --dry-run` passes. There are no git dependencies.
 - [ ] The spike window renders the dummy grid and highlights Lua in the editor on Linux and Windows.
 - [ ] The mlua test interrupts `while true do end` within 100 ms and survives `string.rep("x", 1e10)` with a memory error rather than a crash.
