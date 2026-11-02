@@ -162,6 +162,36 @@ impl Value {
     }
 }
 
+impl From<i64> for Value {
+    fn from(i: i64) -> Self {
+        Value::Int(i)
+    }
+}
+
+impl From<i32> for Value {
+    fn from(i: i32) -> Self {
+        Value::Int(i64::from(i))
+    }
+}
+
+impl From<f64> for Value {
+    fn from(n: f64) -> Self {
+        Value::Num(n)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Self {
+        Value::str(s)
+    }
+}
+
 /// Formats a float for display with up to 10 significant digits, switching to
 /// scientific notation for very large or very small magnitudes.
 pub(crate) fn format_number(n: f64) -> String {

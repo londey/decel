@@ -1344,9 +1344,12 @@ dependencies = [
 name = "decel-engine"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "decel-model",
  "decel-store",
  "mlua",
+ "proptest",
+ "rstar",
  "thiserror 2.0.21",
 ]
 
@@ -5645,6 +5648,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7"
 dependencies = [
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "rstar"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d95c33d01e9acee7be3363f99e9ef88b1a587186e81e03843fbe39d77d9a0c1f"
+dependencies = [
+ "heapless",
+ "num-traits",
+ "ordered-float",
+ "smallvec",
 ]
 
 [[package]]

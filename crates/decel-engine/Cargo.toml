@@ -14,7 +14,16 @@ rust-version.workspace = true
 decel-model.workspace = true
 decel-store.workspace = true
 mlua.workspace = true
+rstar.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "recalc"
+harness = false
 
 [lints]
 workspace = true

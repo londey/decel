@@ -236,6 +236,14 @@ decel adds:
 | `color` | `rgb(r, g, b)`, `hex(s)`, `lerp(a, b, t)`, `scale(v, lo, hi, a, b)` (for heat-map backgrounds) |
 | `range` | `sum(...)`, `min(...)`, `max(...)`: variadic helpers that accept values or ranges |
 
+Implementation notes (Phase 2):
+
+- The global environment is a frozen, read-only table. Assigning a global is an error ("use local"), and `string`, `math`, `table`, `utf8` and decel's modules are read-only proxies, so no cell can leave state behind for another. `getmetatable` is kept, but strings report `false` and every frozen table reports `"locked"`. Compiled metatables are frozen the same way.
+- `range.sum`/`min`/`max` and the Range methods skip non-numbers. `sum` stays an integer while every term is one. `min`/`max`/`avg` return floats, and `nil` for an empty range. `count` counts non-nil values.
+- `r:map(f)` and `r:filter(f)` call `f` with Cell handles. `r:filter` returns an array of handles. `r:reduce(f, init)` folds over values (`f(acc, v)`). `r.rows`/`r.cols` of an open-ended range (`c:below()`, `c:right_of()`, `c:column()` with no end) stop at the last populated cell inside the range.
+- `display`, `edit` and `tooltip` hooks aren't called when the value is `nil`. An empty cell with a metatable shows nothing.
+- `fmt` rounds half to even on the exact binary value (`fmt.fixed(1.005, 2)` is `"1.00"`). `fmt.dms` rounds half away from zero and carries 60″ into minutes and degrees. Every parser accepts `−` (U+2212) as a minus sign. The full list of formatter edge cases is in the `stdlib` module docs and tests.
+
 Removing `math.random` and all time functions keeps evaluation **deterministic**. Recalculation therefore gives the same result for the same inputs, which keeps history meaningful.
 
 ### 4.6 Units
@@ -323,6 +331,8 @@ There's no formula parser, so dependencies are **recorded while code runs**:
 3. **Evaluate on demand.** Evaluate each dirty cell. Reading a dirty dependency evaluates it first, recursively. An "in progress" stack detects cycles: every cell in the cycle gets `#CYCLE`.
 4. Each evaluation has an **instruction budget** (default 10 M VM instructions, enforced by a Lua hook) giving `#TIMEOUT`, and the VM has a **memory cap** (default 512 MiB) giving `#MEMORY`.
 5. Changed final values are sent to the UI for any subscribed (visible) cells.
+
+Evaluation never recurses through Lua. When a hook reads a dependency that hasn't been evaluated yet, the hook is interrupted (an interrupt `pcall` can't catch), the dependency is evaluated from an explicit work stack, and the hook is retried. Long chains such as a 500-row running total therefore never touch Lua's C-stack limit. A cycle is detected when the dependency is already on the stack, and exactly the stack slice from it to the top gets `#CYCLE`. A cell that reads a cycle member sees the error propagated (with its kind) but isn't itself marked as a member. Dirty cells are processed in row-major order, so top-down chains rarely need a retry.
 
 Recalculation runs on the engine thread (§9) in slices of about 5 ms, and checks for new commands between slices. A newer edit **pre-empts** a running recalculation, marks more cells dirty and resumes. The UI never blocks.
 

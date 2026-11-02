@@ -76,12 +76,12 @@ impl Rect {
         (self.r1..=self.r2).contains(&row) && (self.c1..=self.c2).contains(&col)
     }
 
-    pub fn rows(&self) -> u32 {
-        self.r2 - self.r1 + 1
+    pub fn rows(&self) -> u64 {
+        u64::from(self.r2 - self.r1) + 1
     }
 
-    pub fn cols(&self) -> u32 {
-        self.c2 - self.c1 + 1
+    pub fn cols(&self) -> u64 {
+        u64::from(self.c2 - self.c1) + 1
     }
 
     pub fn intersects(&self, other: &Rect) -> bool {

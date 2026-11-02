@@ -109,7 +109,7 @@ impl CellStorage for SparseCells {
         let Rect { r1, c1, r2, c2 } = rect;
         // Few rows relative to population: one range query per row. Otherwise
         // scan the row band and filter columns.
-        if (u64::from(rect.rows())) <= self.cells.len() as u64 {
+        if rect.rows() <= self.cells.len() as u64 {
             Box::new(
                 (r1..=r2)
                     .flat_map(move |r| self.cells.range((r, c1)..=(r, c2)).map(|(k, v)| (*k, v))),

@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 2 — Lua engine
+
+#### Added
+
+- Sandbox: frozen read-only globals, instruction budget plus wall-clock safety net, memory cap,
+  interrupt-safe `pcall`/`xpcall`, `print` captured per cell.
+- `fmt`, `parse`, `color` and `range` modules with golden tests.
+- Metatable compilation per member (errors report member and line), frozen `self`.
+- The `c` API: cell context, cell/range/sheet handles with runtime dependency recording;
+  range dependencies in a per-sheet R-tree; sheet-name dependencies.
+- Incremental recalculation with an explicit work stack (no Lua recursion), cycle detection,
+  error propagation, validation warnings, and the display/tooltip/edit/parse/validate/preview
+  pipelines.
+- `decel_engine::testkit`: a headless DSL for building workbooks in tests.
+- Differential fuzz test (incremental vs full recalc) and recalc benches.
+
 ### Phase 1 — Model & store
 
 #### Added
