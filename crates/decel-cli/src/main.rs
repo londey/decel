@@ -7,12 +7,15 @@
 //!   displayed text (`csv`, the default) or final values in edit form
 //!   (`values`).
 //! - `decel-cli demo out.decel` writes the DESIGN §4.7/§4.8 examples.
+//! - `decel-cli examples DIR` writes the user-guide example workbooks
+//!   (`survey.decel`, `budget.decel`, `engineering.decel`) into `DIR`.
 //! - `decel-cli gen-big out.decel ROWS COLS` writes a large numeric sheet for
 //!   scrolling benchmarks.
 
 use std::path::PathBuf;
 
 mod demo;
+mod examples;
 
 use anyhow::{Context, Result, bail};
 use decel_engine::{Engine, Limits};
@@ -21,6 +24,7 @@ use decel_store::Store;
 
 const USAGE: &str = "usage: decel-cli eval <file.decel> [--sheet NAME] [--dump csv|values]
        decel-cli demo <out.decel>
+       decel-cli examples <dir>
        decel-cli gen-big <out.decel> <rows> <cols>";
 
 enum Dump {
@@ -41,6 +45,7 @@ fn main() -> Result<()> {
     match args.next().as_deref() {
         Some("eval") => eval(args),
         Some("demo") => demo::write(&PathBuf::from(args.next().context(USAGE)?)),
+        Some("examples") => examples::write_all(&PathBuf::from(args.next().context(USAGE)?)),
         Some("gen-big") => {
             let path = PathBuf::from(args.next().context(USAGE)?);
             let rows: u32 = args.next().context(USAGE)?.parse()?;
