@@ -154,9 +154,10 @@ impl Workbook {
         }
     }
 
-    /// Shifts cells, layout and chart anchors. For deletions the deleted span
-    /// is expected to be already empty (the store records those clears as
-    /// separate changes first); anything left there is dropped.
+    /// Shifts cells and layout. For deletions the deleted span is expected to
+    /// be already empty (the store records those clears as separate changes
+    /// first); anything left there is dropped. Charts are not touched: the
+    /// store records their moves as explicit chart changes.
     fn apply_structure(&mut self, op: StructOp) {
         let Some(sheet) = self.sheets.get_mut(&op.sheet()) else {
             return;
@@ -177,17 +178,5 @@ impl Workbook {
             .into_iter()
             .filter_map(|(i, s)| op.map_index(i).map(|i| (i, s)))
             .collect();
-        for chart in self.charts.values_mut() {
-            if chart.sheet != op.sheet() {
-                continue;
-            }
-            let idx = match axis {
-                Axis::Row => &mut chart.row,
-                Axis::Col => &mut chart.col,
-            };
-            if let Some(i) = op.map_index(*idx) {
-                *idx = i;
-            }
-        }
     }
 }

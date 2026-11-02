@@ -449,6 +449,7 @@ impl Workspace {
                 .child(label)
         };
         let on_meta = self.dock_tab == crate::workspace::DockTab::Metatable;
+        let on_chart = self.dock_tab == crate::workspace::DockTab::Chart;
         let mut panel = div()
             .w(px(DOCK_W))
             .h_full()
@@ -472,17 +473,28 @@ impl Workspace {
                             },
                         )),
                     )
-                    .child(
-                        tab("tab-history", "History  F5", !on_meta).on_click(cx.listener(
+                    .when(self.charts.selected.is_some(), |d| {
+                        d.child(tab("tab-chart", "Chart", on_chart).on_click(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
+                                this.dock_tab = crate::workspace::DockTab::Chart;
+                                cx.notify();
+                            },
+                        )))
+                    })
+                    .child(
+                        tab("tab-history", "History  F5", !on_meta && !on_chart).on_click(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.dock_tab = crate::workspace::DockTab::History;
                                 this.history.addr = None;
                                 this.refresh_history();
                                 cx.notify();
-                            },
-                        )),
+                            }),
+                        ),
                     ),
             );
+        if on_chart {
+            return Some(panel.child(self.render_chart_panel(cx)));
+        }
         if !on_meta {
             return Some(panel.child(self.render_history(cx)));
         }

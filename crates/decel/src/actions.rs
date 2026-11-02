@@ -50,6 +50,7 @@ actions!(
         AddSheet,
         InsertCells,
         DeleteCells,
+        InsertChart,
     ]
 );
 
@@ -95,6 +96,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-+", InsertCells, g),
         KeyBinding::new("ctrl-shift-+", InsertCells, g),
         KeyBinding::new("ctrl--", DeleteCells, g),
+        KeyBinding::new("alt-f1", InsertChart, g),
+        KeyBinding::new("f11", InsertChart, g),
         KeyBinding::new("ctrl-shift-b", ToggleBoundaries, None),
         KeyBinding::new("ctrl-shift-m", NewMetaOnSelection, None),
         KeyBinding::new("ctrl-d", FillDown, g),

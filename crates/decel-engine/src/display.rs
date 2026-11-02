@@ -97,6 +97,8 @@ pub struct DisplayCell {
     pub unit: Option<Arc<str>>,
     /// Code-side label: `kind`, or the first member's name.
     pub label: Option<Arc<str>>,
+    /// The final value as a number, if it is one (for charts).
+    pub number: Option<f64>,
 }
 
 impl DisplayCell {

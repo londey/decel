@@ -136,3 +136,14 @@ Setup: `decel-cli demo /tmp/demo.decel` and open it.
 - [ ] Column widths, row heights and chart anchors move with insertions and deletions.
 - [ ] After two row inserts above an edited cell, its History (`F5`) still lists every earlier version.
 - [ ] Peek's legend counts cells on this sheet, with "+N elsewhere" for other sheets.
+
+## Phase 9 — Charts
+
+Setup: open `decel-cli demo` output. Select 1,5:21,6 (Amount and Running total with headers) and press `Alt+F1` (or `F11`).
+- [ ] A line chart appears to the right of the selection. X comes from Amount, and there is one series named "Running total". Ticks are round numbers and x labels don't overlap.
+- [ ] Clicking the chart selects it (outline, resize grip) and opens the **Chart** dock tab. Line / Bar / Scatter switch the type. Titles apply with **Apply titles**. The legend toggles. **Use selection** sets the X or series ranges, and **+ Add series from selection** adds a series. Clicking a swatch cycles its colour.
+- [ ] Dragging the chart moves it (it snaps to the cell under its top-left corner). Dragging the bottom-right grip resizes it. `Delete` removes the selected chart.
+- [ ] Editing an Amount updates the line, bar and scatter versions immediately. Scrolling the chart off-screen and back shows current data.
+- [ ] Text in a series range is skipped, and "N non-numeric skipped" appears in the corner.
+- [ ] Inserting rows or columns above or left of the chart moves the chart and its source ranges with the data. Deleting rows inside a series shrinks it.
+- [ ] Every chart edit can be undone. Charts survive close and reopen, and Save As.

@@ -512,6 +512,9 @@ The grid is a **custom GPUI element**, not a widget table:
 - The spec is JSON in `charts.spec`. Changes are recorded in `other_changes`, so they can be undone.
 - Charts are drawn with GPUI paths by a small built-in renderer that handles axes, nice ticks, lines, bars and points. There's no external plotting dependency. Charts update live as values recalculate.
 - Charts move and resize with the mouse, and stay anchored to their cell when rows or columns are inserted.
+- Implementation notes (Phase 9):
+  - A new chart is anchored two columns to the right of the selection's top row, not on the selection's top-left cell. Anchoring on that cell would cover the data being charted.
+  - Structural operations record each chart's move (anchor and source ranges) as an explicit chart change, so undo restores it exactly. Ranges grow when rows or columns are inserted inside them and shrink when they're deleted.
 
 ### 8.7 Default keymap (all configurable)
 

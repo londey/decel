@@ -536,6 +536,7 @@ impl Engine {
             kind: info.and_then(|i| i.kind.clone()),
             unit: info.and_then(|i| i.unit.clone()),
             label: info.and_then(|i| i.label.clone()),
+            number: v.as_f64(),
             ..DisplayCell::default()
         };
         let default_style = CellStyle {

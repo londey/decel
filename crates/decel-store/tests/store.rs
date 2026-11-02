@@ -472,3 +472,53 @@ fn history_of_fifty_edits_over_three_sessions() {
     }
     assert!(hist.windows(2).all(|w| w[0].txn.id > w[1].txn.id));
 }
+
+#[test]
+fn charts_follow_structure_and_undo_exactly() {
+    use decel_model::{ChartSpec, RangeRef, Rect, Series};
+    let mut s = Store::in_memory().unwrap();
+    let spec = ChartSpec {
+        series: vec![Series {
+            name: "y".into(),
+            range: RangeRef {
+                sheet: S1,
+                rect: Rect::new(2, 1, 9, 1),
+            },
+            color: None,
+        }],
+        ..ChartSpec::default()
+    };
+    let rec = ChartRecord {
+        sheet: S1,
+        row: 3,
+        col: 4,
+        spec: spec.to_json(),
+    };
+    s.apply(TxnInput::new("chart").op(Op::ChartUpsert {
+        id: None,
+        chart: rec.clone(),
+    }))
+    .unwrap();
+    s.apply(TxnInput::new("ins").op(Op::Structure(StructOp::InsertRows {
+        sheet: S1,
+        at: 0,
+        n: 2,
+    })))
+    .unwrap();
+    let wb = s.load().unwrap();
+    let moved = wb.charts.values().next().unwrap();
+    assert_eq!(moved.row, 5);
+    assert_eq!(
+        ChartSpec::parse(&moved.spec).unwrap().series[0].range.rect,
+        Rect::new(4, 1, 11, 1)
+    );
+    s.apply(TxnInput::new("del").op(Op::Structure(StructOp::DeleteRows {
+        sheet: S1,
+        at: 5,
+        n: 1,
+    })))
+    .unwrap();
+    s.undo().unwrap();
+    s.undo().unwrap();
+    assert_eq!(s.load().unwrap().charts.values().next().unwrap(), &rec);
+}

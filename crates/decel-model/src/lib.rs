@@ -6,6 +6,7 @@
 //! 1-based; convert only at those boundaries.
 
 mod addr;
+mod chart;
 mod meta;
 mod ops;
 mod parse;
@@ -14,6 +15,7 @@ mod value;
 mod workbook;
 
 pub use addr::{Axis, CellAddr, ChartId, Rect, SheetId};
+pub use chart::{ChartKind, ChartSpec, RangeRef, Series};
 pub use meta::{
     FIELDS, HOOKS, Member, MemberDiff, MemberKind, MetaHash, MetaParseError, MetaSource,
     diff_members, normalise_source,

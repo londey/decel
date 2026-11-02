@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 9 — Charts
+
+#### Added
+
+- `decel_model::ChartSpec` (JSON): kind, title, X range, series (range, name, colour), axis
+  titles, legend, size. Structural ops record explicit chart changes that move the anchor and
+  source ranges, so undo is exact.
+- Floating charts drawn with GPUI paths: nice ticks, gridlines, line / grouped bar / scatter,
+  legend, skipped-value note. Charts subscribe to their ranges and update live, even off-screen.
+- Insert chart from the selection (`Alt+F1` / `F11`), move/resize with the mouse, `Delete`, and a
+  Chart panel in the dock.
+
 ### Phase 7 — Sheets & structure
 
 #### Added

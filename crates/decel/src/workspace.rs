@@ -159,6 +159,7 @@ pub struct AutoFillPreview {
 pub enum DockTab {
     Metatable,
     History,
+    Chart,
 }
 
 /// Length of the code-side flip animation.
@@ -212,6 +213,7 @@ pub struct Workspace {
     /// Switch to the sheet with this name when it appears (after Add sheet).
     pub(crate) switch_to_name: Option<String>,
     pub(crate) dock_tab: DockTab,
+    pub(crate) charts: crate::charts::ChartsState,
     pub(crate) history: crate::history::HistoryState,
     pub(crate) dock_sync_pending: bool,
     pub(crate) peek: bool,
@@ -341,6 +343,7 @@ impl Workspace {
             confirm_delete: None,
             switch_to_name: None,
             dock_tab: DockTab::Metatable,
+            charts: Default::default(),
             history: Default::default(),
             dock_sync_pending: false,
             peek: false,
@@ -409,8 +412,12 @@ impl Workspace {
                 sheet,
                 full,
                 cells,
-                ..
+                rect,
             } => {
+                if self.on_chart_cells(sub, rect, full, &cells) {
+                    cx.notify();
+                    return;
+                }
                 if sub != GRID_SUB || Some(sheet) != self.sheet {
                     return;
                 }
@@ -469,6 +476,15 @@ impl Workspace {
             self.banner = Some(Banner::ReadOnly);
         }
         self.info = Some(info);
+        self.sync_chart_subs();
+        if let Some(id) = self.charts.selected
+            && !self
+                .info
+                .as_ref()
+                .is_some_and(|i| i.charts.contains_key(&id))
+        {
+            self.select_chart(None, window, cx);
+        }
         self.switch_sheet(sheet, window, cx);
     }
 
@@ -1297,6 +1313,9 @@ impl Workspace {
         self.focus.focus(window, cx);
         self.tooltip = None;
         self.show_recent = false;
+        if self.charts.selected.is_some() {
+            self.select_chart(None, window, cx);
+        }
         match self.hit(e.position) {
             Hit::ColHeader {
                 edge: Some(idx), ..
@@ -1378,6 +1397,14 @@ impl Workspace {
     }
 
     fn on_mouse_move(&mut self, e: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(d) = self.charts.drag.as_mut() {
+            if e.pressed_button == Some(MouseButton::Left) {
+                d.delta = e.position - d.start;
+                cx.notify();
+                return;
+            }
+            self.finish_chart_drag();
+        }
         if let Some(r) = self.resize {
             match r {
                 Resize::Col { idx, start, origin } => {
@@ -1500,6 +1527,11 @@ impl Workspace {
 
     fn on_mouse_up(&mut self, e: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.dragging = false;
+        if self.charts.drag.is_some() {
+            self.finish_chart_drag();
+            cx.notify();
+            return;
+        }
         if let (Some(dst), Some(sheet)) = (self.fill_drag.take(), self.sheet) {
             let src = self.sel.rect();
             if dst != src {
@@ -2195,7 +2227,17 @@ impl Render for Workspace {
                                     this.begin_edit(None, window, cx)
                                 }
                             }))
-                            .on_action(cx.listener(|this, _: &ClearCells, _, _| this.clear_cells()))
+                            .on_action(cx.listener(|this, _: &ClearCells, window, cx| {
+                                if let Some(id) = this.charts.selected {
+                                    this.send(Command::ChartDelete { id });
+                                    this.select_chart(None, window, cx);
+                                } else {
+                                    this.clear_cells()
+                                }
+                            }))
+                            .on_action(
+                                cx.listener(|this, _: &InsertChart, _, cx| this.insert_chart(cx)),
+                            )
                             .on_action(cx.listener(|this, _: &Undo, _, _| {
                                 this.send(Command::Undo);
                             }))
@@ -2207,6 +2249,7 @@ impl Render for Workspace {
                             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
                             .on_scroll(cx.listener(Self::on_scroll))
                             .child(GridElement::new(cx.entity(), self.grid_bounds.clone()))
+                            .children(self.render_charts(cx))
                             .when_some(self.render_editor_overlay(cx), |d, e| d.child(e))
                             .when_some(self.render_tooltip(cx), |d, t| d.child(t))
                             .when_some(self.render_legend(cx), |d, l| d.child(l))

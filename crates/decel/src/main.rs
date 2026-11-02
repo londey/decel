@@ -5,6 +5,7 @@
 //! Usage: `decel [file.decel]`
 
 mod actions;
+mod charts;
 mod client;
 mod dock;
 mod grid;

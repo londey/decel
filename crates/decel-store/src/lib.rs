@@ -1062,28 +1062,6 @@ fn apply_structure_db(conn: &Connection, op: StructOp) -> Result<(), StoreError>
         "UPDATE layout SET idx = -1 - idx WHERE sheet_id=?1 AND axis=?2 AND idx < 0",
         params![sheet, ax],
     )?;
-    // Chart anchors.
-    let mut st = conn.prepare("SELECT id, spec FROM charts WHERE sheet_id = ?1")?;
-    let charts: Vec<(u32, String)> = st
-        .query_map([sheet], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-    for (id, spec) in charts {
-        let mut rec: ChartRecord =
-            serde_json::from_str(&spec).map_err(|_| StoreError::Corrupt("bad chart record"))?;
-        let idx = match axis {
-            Axis::Row => &mut rec.row,
-            Axis::Col => &mut rec.col,
-        };
-        if let Some(i) = op.map_index(*idx) {
-            *idx = i;
-            let spec =
-                serde_json::to_string(&rec).map_err(|_| StoreError::Corrupt("chart encode"))?;
-            conn.execute(
-                "UPDATE charts SET spec = ?2 WHERE id = ?1",
-                params![id, spec],
-            )?;
-        }
-    }
     Ok(())
 }
 
@@ -1585,32 +1563,26 @@ fn plan_structure(conn: &Connection, op: StructOp, plan: &mut Plan) -> Result<()
                 },
             )?;
         }
-        let charts: Vec<(u32, String)> = conn
-            .prepare("SELECT id, spec FROM charts WHERE sheet_id = ?1")?
-            .query_map([sheet.0], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<Result<_, _>>()?;
-        for (id, spec) in charts {
-            let rec: ChartRecord =
-                serde_json::from_str(&spec).map_err(|_| StoreError::Corrupt("bad chart record"))?;
-            let idx = match op.axis() {
-                Axis::Row => rec.row,
-                Axis::Col => rec.col,
-            };
-            if (at..end).contains(&idx) {
-                let mut moved = rec.clone();
-                match op.axis() {
-                    Axis::Row => moved.row = end,
-                    Axis::Col => moved.col = end,
-                }
-                plan.push(
-                    conn,
-                    Change::Chart {
-                        id: ChartId(id),
-                        before: Some(rec),
-                        after: Some(moved),
-                    },
-                )?;
-            }
+    }
+    // Charts anywhere may anchor on or read from this sheet; record each
+    // move explicitly so undo restores it exactly.
+    let charts: Vec<(u32, String)> = conn
+        .prepare("SELECT id, spec FROM charts")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (id, spec) in charts {
+        let rec: ChartRecord =
+            serde_json::from_str(&spec).map_err(|_| StoreError::Corrupt("bad chart record"))?;
+        let moved = rec.shifted(op);
+        if moved != rec {
+            plan.push(
+                conn,
+                Change::Chart {
+                    id: ChartId(id),
+                    before: Some(rec),
+                    after: Some(moved),
+                },
+            )?;
         }
     }
     plan.push(conn, Change::Structure(op))?;
