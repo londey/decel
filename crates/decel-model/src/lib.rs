@@ -15,7 +15,8 @@ mod workbook;
 
 pub use addr::{Axis, CellAddr, ChartId, Rect, SheetId};
 pub use meta::{
-    FIELDS, HOOKS, Member, MemberKind, MetaHash, MetaParseError, MetaSource, normalise_source,
+    FIELDS, HOOKS, Member, MemberDiff, MemberKind, MetaHash, MetaParseError, MetaSource,
+    diff_members, normalise_source,
 };
 pub use ops::{Change, ChartRecord, Op, SheetRecord, StructOp, TxnInput, invert_changes};
 pub use parse::parse_default;

@@ -438,6 +438,17 @@ impl Workspace {
         }
         let theme = cx.theme().clone();
         let dock = &self.dock;
+        let tab = |id: &'static str, label: &'static str, active: bool| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .cursor_pointer()
+                .when(active, |d| d.border_b_2().border_color(theme.primary))
+                .when(!active, |d| d.text_color(theme.muted_foreground))
+                .child(label)
+        };
+        let on_meta = self.dock_tab == crate::workspace::DockTab::Metatable;
         let mut panel = div()
             .w(px(DOCK_W))
             .h_full()
@@ -448,13 +459,33 @@ impl Workspace {
             .bg(theme.background)
             .child(
                 div()
-                    .px_3()
-                    .py_1()
+                    .flex()
+                    .flex_row()
                     .border_b_1()
                     .border_color(theme.border)
-                    .text_color(theme.muted_foreground)
-                    .child("Metatable"),
+                    .child(
+                        tab("tab-meta", "Metatable  F4", on_meta).on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| {
+                                this.dock_tab = crate::workspace::DockTab::Metatable;
+                                this.dock_follow_selection(window, cx);
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(
+                        tab("tab-history", "History  F5", !on_meta).on_click(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.dock_tab = crate::workspace::DockTab::History;
+                                this.history.addr = None;
+                                this.refresh_history();
+                                cx.notify();
+                            },
+                        )),
+                    ),
             );
+        if !on_meta {
+            return Some(panel.child(self.render_history(cx)));
+        }
         let Some(addr) = dock.target else {
             return Some(panel.child(div().p_3().child("Select a cell.")));
         };

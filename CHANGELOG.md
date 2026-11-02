@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 6 — History UI
+
+#### Added
+
+- History dock (`F5`): the selected cell's versions with time, label, before → after and a
+  metatable badge; member-level diffs (`decel_model::diff_members`); restore.
+- Undo history list with the current position; clicking undoes/redoes to that point.
+- Status bar shows undo/redo availability and labels.
+- Per-cell history bench: ~50 µs with 1 M `cell_changes` rows.
+
 ### Phase 5 — Metatable UX
 
 #### Added

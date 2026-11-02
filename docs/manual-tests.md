@@ -118,3 +118,11 @@ Setup: `decel-cli demo /tmp/demo.decel` and open it.
 - [ ] `Ctrl+Shift+D` on a cell above a run outlines the run in amber with a prompt in the status bar. `Enter` applies it, `Esc` cancels, and undo restores it in one step.
 - [ ] `Ctrl+C` / `Ctrl+V` within decel pastes values and metatables (pasted cells share the source's colour). `Ctrl+Shift+V` pastes values only, and `Ctrl+Alt+V` metatables only.
 - [ ] Copying to another app gives tab-separated edit text. Pasting text from another app goes through each target cell's `parse`/`validate`.
+
+## Phase 6 — History UI
+
+- [ ] Edit a cell several times over two sessions (close and reopen). `F5` lists every version newest first, with time, label, `before → after`, and a **metatable** badge where the metatable changed.
+- [ ] Expanding a metatable change shows a member-level diff: changed members side by side, added/removed flagged, unchanged ones collapsed. Renaming a helper shows a removal plus an addition.
+- [ ] **Restore this version** sets the cell back to that version. `Ctrl+Z` then returns it to how it was before the restore.
+- [ ] The undo history lists done actions (current one marked) and undone actions (italic). Clicking an entry undoes or redoes to that point, and the start entry undoes everything.
+- [ ] The status bar shows `Undo: …` / `Redo: …` and the last action.

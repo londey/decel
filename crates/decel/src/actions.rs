@@ -46,6 +46,7 @@ actions!(
         PasteValues,
         PasteMeta,
         NewMetaOnSelection,
+        ToggleHistory,
     ]
 );
 
@@ -85,6 +86,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-q", Quit, None),
         KeyBinding::new("f3", ToggleCodeSide, None),
         KeyBinding::new("f4", ToggleDock, None),
+        KeyBinding::new("f5", ToggleHistory, None),
         KeyBinding::new("ctrl-shift-b", ToggleBoundaries, None),
         KeyBinding::new("ctrl-shift-m", NewMetaOnSelection, None),
         KeyBinding::new("ctrl-d", FillDown, g),

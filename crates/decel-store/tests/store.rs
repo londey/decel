@@ -441,3 +441,34 @@ fn nan_and_special_values_round_trip() {
         assert_eq!(wb.cell(a(i as u32, 0)).unwrap().raw.as_ref(), Some(v));
     }
 }
+
+#[test]
+fn history_of_fifty_edits_over_three_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("h.decel");
+    let mut n = 0;
+    for session in 0..3 {
+        let mut s = if session == 0 {
+            Store::create(&path).unwrap()
+        } else {
+            Store::open(&path).unwrap()
+        };
+        let edits = if session < 2 { 17 } else { 16 };
+        for _ in 0..edits {
+            n += 1;
+            s.apply(set(
+                &format!("edit {n}"),
+                vec![(a(0, 0), int(n)), (a(1, n as u32 % 3), int(n))],
+            ))
+            .unwrap();
+        }
+    }
+    let s = Store::open(&path).unwrap();
+    let hist = s.cell_history(a(0, 0)).unwrap();
+    assert_eq!(hist.len(), 50);
+    for (i, v) in hist.iter().enumerate() {
+        assert_eq!(v.after, int(50 - i as i64));
+        assert_eq!(v.txn.label, format!("edit {}", 50 - i));
+    }
+    assert!(hist.windows(2).all(|w| w[0].txn.id > w[1].txn.id));
+}

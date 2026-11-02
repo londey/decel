@@ -105,6 +105,7 @@ pub struct Status {
     pub can_undo: bool,
     pub can_redo: bool,
     pub undo_label: Option<String>,
+    pub redo_label: Option<String>,
     pub last: String,
 }
 
@@ -154,6 +155,12 @@ pub struct AutoFillPreview {
     pub cells: Vec<CellAddr>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DockTab {
+    Metatable,
+    History,
+}
+
 /// Length of the code-side flip animation.
 pub const FLIP: Duration = Duration::from_millis(150);
 
@@ -200,6 +207,8 @@ pub struct Workspace {
     pub(crate) _event_task: Task<()>,
     pub(crate) _keys: Subscription,
     pub(crate) dock: Dock,
+    pub(crate) dock_tab: DockTab,
+    pub(crate) history: crate::history::HistoryState,
     pub(crate) dock_sync_pending: bool,
     pub(crate) peek: bool,
     pub(crate) code_side: bool,
@@ -321,6 +330,8 @@ impl Workspace {
             _event_task: event_task,
             _keys: keys,
             dock: Dock::new(window, cx),
+            dock_tab: DockTab::Metatable,
+            history: Default::default(),
             dock_sync_pending: false,
             peek: false,
             code_side: false,
@@ -356,7 +367,7 @@ impl Workspace {
     // -----------------------------------------------------------------------
     // Engine plumbing
 
-    fn send(&mut self, cmd: Command) -> u64 {
+    pub(crate) fn send(&mut self, cmd: Command) -> u64 {
         self.engine.send(cmd)
     }
 
@@ -406,11 +417,13 @@ impl Workspace {
                 can_undo,
                 can_redo,
                 undo_label,
-                ..
+                redo_label,
             } => {
                 self.status.can_undo = can_undo;
                 self.status.can_redo = can_redo;
                 self.status.undo_label = undo_label;
+                self.status.redo_label = redo_label;
+                self.refresh_history();
                 if !label.is_empty() {
                     self.status.last = label;
                 }
@@ -1705,6 +1718,10 @@ impl Workspace {
         };
         let undo = match (&status.undo_label, status.can_undo) {
             (Some(l), true) => format!("Undo: {l}"),
+            _ => "Nothing to undo".into(),
+        };
+        let redo = match (&status.redo_label, status.can_redo) {
+            (Some(l), true) => format!("Redo: {l}"),
             _ => String::new(),
         };
         let fps = self.fps.as_ref().map(|f| {
@@ -1730,6 +1747,9 @@ impl Workspace {
             })
             .when_some(fps, |d, f| d.child(div().px_3().child(f)))
             .child(div().px_3().text_color(theme.muted_foreground).child(undo))
+            .when(!redo.is_empty(), |d| {
+                d.child(div().px_3().text_color(theme.muted_foreground).child(redo))
+            })
             .child(
                 div()
                     .px_3()
@@ -1992,7 +2012,11 @@ impl Render for Workspace {
         self.ensure_subscribed();
         // The dock follows the selection (after this frame).
         let cursor_addr = self.addr(self.sel.cursor.0, self.sel.cursor.1);
+        if self.dock.open && self.dock_tab == DockTab::History && self.history.addr != cursor_addr {
+            self.refresh_history();
+        }
         if self.dock.open
+            && self.dock_tab == DockTab::Metatable
             && !self.dock_sync_pending
             && self.edit.is_none()
             && cursor_addr.is_some()
@@ -2034,7 +2058,26 @@ impl Render for Workspace {
                     this.toggle_code_side(window, cx)
                 }),
             )
-            .on_action(cx.listener(|this, _: &ToggleDock, window, cx| this.toggle_dock(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleDock, window, cx| {
+                if this.dock.open && this.dock_tab == DockTab::Metatable {
+                    this.toggle_dock(window, cx);
+                } else {
+                    this.dock_tab = DockTab::Metatable;
+                    this.dock.open = false;
+                    this.toggle_dock(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleHistory, _, cx| {
+                if this.dock.open && this.dock_tab == DockTab::History {
+                    this.dock.open = false;
+                } else {
+                    this.dock_tab = DockTab::History;
+                    this.dock.open = true;
+                    this.history.addr = None;
+                    this.refresh_history();
+                }
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ToggleBoundaries, _, cx| {
                 this.boundaries = !this.boundaries;
                 cx.notify();

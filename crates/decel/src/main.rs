@@ -8,6 +8,7 @@ mod actions;
 mod client;
 mod dock;
 mod grid;
+mod history;
 mod palette;
 mod recent;
 mod sizes;

@@ -59,9 +59,24 @@ fn bench(c: &mut Criterion) {
     });
 }
 
+/// Per-cell history must take under 10 ms with 1 M `cell_changes` rows.
+fn history(c: &mut Criterion) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::create(&dir.path().join("history.decel")).unwrap();
+    for base in 0..100 {
+        store.apply(fill(10_000, base)).unwrap();
+        store.checkpoint().unwrap();
+    }
+    let target = CellAddr::new(SheetId(1), 250, 7);
+    assert_eq!(store.cell_history(target).unwrap().len(), 100);
+    c.bench_function("cell_history_1m_rows", |b| {
+        b.iter(|| store.cell_history(target).unwrap())
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench
+    targets = bench, history
 }
 criterion_main!(benches);

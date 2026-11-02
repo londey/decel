@@ -282,6 +282,56 @@ impl MetaSource {
     }
 }
 
+/// How one member differs between two versions of a metatable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberDiff {
+    Added(Member),
+    Removed(Member),
+    Changed { before: Member, after: Member },
+    Same(Member),
+}
+
+impl MemberDiff {
+    pub fn name(&self) -> &str {
+        match self {
+            MemberDiff::Added(m) | MemberDiff::Removed(m) | MemberDiff::Same(m) => &m.name,
+            MemberDiff::Changed { after, .. } => &after.name,
+        }
+    }
+}
+
+/// Member-level diff by name, sorted by name. Whitespace that normalisation
+/// removes doesn't count as a change, and a renamed member shows as a
+/// removal plus an addition.
+pub fn diff_members(before: &MetaSource, after: &MetaSource) -> Vec<MemberDiff> {
+    let mut names: Vec<&str> = before
+        .members
+        .iter()
+        .chain(&after.members)
+        .map(|m| m.name.as_str())
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+        .into_iter()
+        .filter_map(|n| match (before.get(n), after.get(n)) {
+            (None, Some(a)) => Some(MemberDiff::Added(a.clone())),
+            (Some(b), None) => Some(MemberDiff::Removed(b.clone())),
+            (Some(b), Some(a)) => Some(
+                if b.kind == a.kind && normalise_source(&b.source) == normalise_source(&a.source) {
+                    MemberDiff::Same(a.clone())
+                } else {
+                    MemberDiff::Changed {
+                        before: b.clone(),
+                        after: a.clone(),
+                    }
+                },
+            ),
+            (None, None) => None,
+        })
+        .collect()
+}
+
 /// Extracts the contents of a simple `"..."` or `'...'` literal.
 fn literal_string(src: &str) -> Option<String> {
     let s = src.trim();
@@ -386,6 +436,23 @@ mod tests {
             MetaSource::default().with("kind", "x .. y").kind_label(),
             None
         );
+    }
+
+    #[test]
+    fn diff_rename_and_body_edit() {
+        let before = latitude().with("helper_a", "function(self) return 1 end");
+        let after = latitude()
+            .with("display", "return fmt.dms(v, \"lat\", 2)")
+            .with("helper_b", "function(self) return 1 end")
+            .with("unit", "\"deg\"   ");
+        let d = diff_members(&before, &after);
+        let find = |n: &str| d.iter().find(|x| x.name() == n).unwrap();
+        assert!(matches!(find("helper_a"), MemberDiff::Removed(_)));
+        assert!(matches!(find("helper_b"), MemberDiff::Added(_)));
+        assert!(matches!(find("display"), MemberDiff::Changed { .. }));
+        assert!(matches!(find("unit"), MemberDiff::Same(_)));
+        assert!(matches!(find("kind"), MemberDiff::Same(_)));
+        assert_eq!(d.len(), 5);
     }
 
     #[test]
