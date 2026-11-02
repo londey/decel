@@ -1,0 +1,23 @@
+[package]
+name = "decel"
+description = "A spreadsheet where every cell can carry a Lua metatable"
+readme = "../../README.md"
+keywords = ["spreadsheet", "lua", "gpui"]
+categories = ["gui", "science"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+decel-engine.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component = { workspace = true, features = ["tree-sitter-lua"] }
+anyhow.workspace = true
+
+[lints]
+workspace = true

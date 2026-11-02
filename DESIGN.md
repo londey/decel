@@ -41,7 +41,7 @@ decel is a lightweight desktop spreadsheet in which every cell can carry a **Lua
 |---|---|---|---|
 | D1 | Name | **decel**, crate `decel`, file extension `.decel` | `dcel` is already taken on crates.io, and the name clashes with the doubly-connected-edge-list data structure. `decel` is free as of 2026-11-02. |
 | D2 | Platform priority | Desktop first. Web is secondary and may come later. | |
-| D3 | UI framework | **GPUI**, plus **gpui-component** for widgets and the code editor | gpui-component 0.8.x pins `gpui-pre =0.3.10`. decel must use the same `gpui-pre` (§10.2). |
+| D3 | UI framework | **GPUI**, plus **gpui-component** for widgets and the code editor | Pinned in Phase 0 (2026-11-02): `gpui-component =0.9.0` (with `tree-sitter-lua`), `gpui-pre =0.3.11` and `gpui-pre-platform =0.3.11` (features `font-kit`, `wayland`, `x11`). gpui-component pins `gpui-pre` exactly, so decel must use the same version (§10.2). Since gpui-pre 0.3.11 the app is started with `gpui_platform::application()`, which lives in the separate `gpui-pre-platform` crate. |
 | D4 | Scripting | **Lua 5.4** via `mlua` with the `vendored` feature | Builds from source, so no system Lua is needed. |
 | D5 | Cell model | A cell has an **optional raw value** and an **optional metatable**. The metatable can override computation, display, editing text, parsing, validation, the hover tooltip and the editing hint. | Example: store a latitude as decimal degrees, display it as D°M′S″, and edit it as decimal. |
 | D6 | Cell references | **API calls with integer rows/columns and relative offsets**, plus helpers for "this column", "this row", "above" and so on. There is no A1 syntax inside Lua. | Relative offsets let one shared metatable work in every row. |
@@ -224,6 +224,8 @@ Ranges are recorded as **range dependencies**, not as one dependency per cell, s
 ### 4.5 The standard library inside the sandbox
 
 The Lua 5.4 libraries available are: `math` (without `random`/`randomseed`), `string`, `table` and `utf8`. The base functions `load`, `loadstring`, `dofile`, `loadfile`, `require`, `collectgarbage`, `rawset` and `setmetatable` are removed. `print` is redirected to the per-cell log shown in the editor.
+
+`pcall` and `xpcall` are replaced by thin wrappers around the native functions. The wrappers re-raise timeout and memory-limit errors, so a script can't catch its own interrupt and keep looping. Ordinary errors are still caught and keep their original error values. A `string.rep`/concatenation request larger than Lua's internal limit (`INT_MAX`) is also reported as `#MEMORY`.
 
 decel adds:
 
@@ -556,7 +558,7 @@ GridView, Dock, Editor ...               owns: mlua::Lua, Model, Store (rusqlite
 
 | Need | Crate | Notes |
 |---|---|---|
-| UI | `gpui-component` 0.8.x with features `tree-sitter-lua`; `gpui-pre =0.3.10` | Use the exact `gpui-pre` that gpui-component pins. Verify in Phase 0. |
+| UI | `gpui-component =0.9.0` with feature `tree-sitter-lua`; `gpui-pre =0.3.11`; `gpui-pre-platform =0.3.11` | Use the exact `gpui-pre` that gpui-component pins (D3). |
 | Lua | `mlua` 0.12 with `lua54`, `vendored`, `send` | `send` lets the engine own the VM on its own thread |
 | SQLite | `rusqlite` 0.41 with `bundled` | |
 | Hashing | `blake3` | |
