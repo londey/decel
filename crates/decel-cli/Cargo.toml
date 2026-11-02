@@ -1,0 +1,22 @@
+[package]
+name = "decel-cli"
+description = "Development CLI for decel: evaluate a workbook headlessly and dump a sheet"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+decel-engine.workspace = true
+decel-model.workspace = true
+decel-store.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

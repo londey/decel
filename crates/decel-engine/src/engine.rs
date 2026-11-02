@@ -123,6 +123,14 @@ impl Engine {
         &self.core.wb
     }
 
+    /// Updates a workbook setting in the engine's copy of the workbook.
+    pub fn set_setting(&mut self, key: &str, value: &str) {
+        self.core
+            .wb
+            .settings
+            .insert(key.to_string(), value.to_string());
+    }
+
     pub fn limits(&self) -> Limits {
         self.sb.limits()
     }

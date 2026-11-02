@@ -571,6 +571,15 @@ GridView, Dock, Editor ...               owns: mlua::Lua, Model, Store (rusqlite
 - Every mutation goes through the engine as a command, so the engine is the single source of truth. The UI never touches SQLite or Lua.
 - Commands carry a sequence number, and events acknowledge it. This lets the UI apply edits optimistically (show the typed text immediately) and reconcile when the event arrives.
 
+Implementation notes (Phase 3, `decel_engine::protocol` and `actor`):
+
+- Every command carries a `seq`. Each gets one `Ack { seq, result }`, whose `Reply` also carries query results (history, share set, metatable source, tooltip, edit text, preview, fill addresses). There are no separate result events.
+- `Subscribe { id, sheet, rect }` supports several subscriptions (the grid, plus later the charts). Subscribing sends a full snapshot (`CellsUpdated { full: true }`) of the rectangle plus a 20-cell margin. After that, only changed cells inside a subscription are pushed. Visible dirty cells are evaluated when their display is computed, so the viewport is never waiting on an off-screen recalculation.
+- Recalculation slices end after 5 ms, or as soon as a command is waiting. The WAL is checkpointed after 500 ms idle.
+- `New { path: None }` creates an in-memory workbook that Save As turns into a file.
+- Fill copies metatables only, keeping destination values, unless `with_values` is set (the value modifier). Fill down/right copies the first row or column of the selection over the rest. Auto-fill's run excludes the selected cell and goes in both directions, each direction using its own neighbour's hash.
+- **Detach** gives the selected cells a private copy of their metatable by setting a `_copy` helper member to the lowest number that produces an unused hash. Identity is structural (D8), so a private copy has to differ in source.
+
 ### 9.3 Key dependencies
 
 | Need | Crate | Notes |

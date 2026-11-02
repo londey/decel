@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 3 — Engine actor
+
+#### Added
+
+- `decel_engine::protocol`: `Command`/`Reply`/`Event` types. `EngineHandle` runs the store and
+  engine on their own thread, with 5 ms pre-emptible recalc slices, viewport subscriptions with
+  coalesced display updates, and an idle WAL checkpoint.
+- Fill drag/down/right and auto-fill run detection with preview; copy-on-write, shared and
+  detach metatable edits; copy and paste (all/values/meta).
+- `decel-cli eval file.decel [--sheet S] [--dump csv|values]` (dev only, not published).
+
+#### Fixed
+
+- Range dependencies covering a whole sheet overflowed the R-tree's area arithmetic.
+
 ### Phase 2 — Lua engine
 
 #### Added

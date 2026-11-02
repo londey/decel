@@ -13,12 +13,14 @@ use decel_model::{CellAddr, Rect, SheetId};
 use rstar::primitives::{GeomWithData, Rectangle};
 use rstar::{AABB, RTree};
 
-type RangeEntry = GeomWithData<Rectangle<[i64; 2]>, CellAddr>;
+// f64 coordinates: every u32 is exact, and areas of sheet-sized rectangles
+// (up to 2^64) would overflow i64 inside rstar.
+type RangeEntry = GeomWithData<Rectangle<[f64; 2]>, CellAddr>;
 
-fn rect_geom(r: Rect) -> Rectangle<[i64; 2]> {
+fn rect_geom(r: Rect) -> Rectangle<[f64; 2]> {
     Rectangle::from_corners(
-        [i64::from(r.r1), i64::from(r.c1)],
-        [i64::from(r.r2), i64::from(r.c2)],
+        [f64::from(r.r1), f64::from(r.c1)],
+        [f64::from(r.r2), f64::from(r.c2)],
     )
 }
 
@@ -121,7 +123,7 @@ impl DepGraph {
             out.extend(set.iter().copied());
         }
         if let Some(tree) = self.range_rev.get(&changed.sheet) {
-            let p = [i64::from(changed.row), i64::from(changed.col)];
+            let p = [f64::from(changed.row), f64::from(changed.col)];
             out.extend(tree.locate_all_at_point(p).map(|e| e.data));
         }
     }
@@ -130,8 +132,8 @@ impl DepGraph {
     pub fn dependents_in(&self, sheet: SheetId, rect: Rect, out: &mut Vec<CellAddr>) {
         if let Some(tree) = self.range_rev.get(&sheet) {
             let env = AABB::from_corners(
-                [i64::from(rect.r1), i64::from(rect.c1)],
-                [i64::from(rect.r2), i64::from(rect.c2)],
+                [f64::from(rect.r1), f64::from(rect.c1)],
+                [f64::from(rect.r2), f64::from(rect.c2)],
             );
             out.extend(tree.locate_in_envelope_intersecting(env).map(|e| e.data));
         }
@@ -191,6 +193,20 @@ mod tests {
         assert!(out.is_empty());
         g.name_dependents("Inputs", &mut out);
         assert_eq!(out, [a(5, 5)]);
+    }
+
+    #[test]
+    fn whole_sheet_ranges_do_not_overflow() {
+        let mut g = DepGraph::default();
+        for i in 0..50 {
+            let mut d = Deps::default();
+            d.range(S, Rect::new(0, 0, u32::MAX, u32::MAX));
+            d.range(S, Rect::new(i, 0, u32::MAX, 0));
+            g.set(a(i, 9), d);
+        }
+        let mut out = Vec::new();
+        g.dependents(a(u32::MAX, u32::MAX), &mut out);
+        assert_eq!(out.len(), 50);
     }
 
     #[test]

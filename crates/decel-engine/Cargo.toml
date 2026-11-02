@@ -14,11 +14,13 @@ rust-version.workspace = true
 decel-model.workspace = true
 decel-store.workspace = true
 mlua.workspace = true
+crossbeam-channel.workspace = true
 rstar.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true
 criterion.workspace = true
 
 [[bench]]
