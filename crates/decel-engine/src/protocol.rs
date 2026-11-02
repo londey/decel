@@ -51,6 +51,16 @@ pub struct ClipData {
     pub text: String,
 }
 
+/// Where an imported CSV goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsvTarget {
+    /// A new sheet named after the file.
+    NewSheet,
+    /// Over existing cells starting here; values go through each target
+    /// cell's `parse`/`validate` hooks.
+    At(CellAddr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// Opens a workbook file. `read_only` skips the lock.
@@ -107,6 +117,21 @@ pub enum Command {
     PasteText {
         at: CellAddr,
         text: String,
+    },
+    /// Imports a CSV file as one transaction.
+    ImportCsv {
+        path: PathBuf,
+        target: CsvTarget,
+        options: decel_io::ImportOptions,
+    },
+    /// Writes a sheet (or a rectangle of it) to a CSV file: displayed text,
+    /// or raw values in edit form (`raw`).
+    ExportCsv {
+        path: PathBuf,
+        sheet: SheetId,
+        rect: Option<Rect>,
+        raw: bool,
+        options: decel_io::ExportOptions,
     },
     /// Gives `targets` a new, empty metatable (with a unique `kind`).
     NewMeta {
@@ -234,6 +259,12 @@ pub enum Reply {
     ShareSet(Vec<CellAddr>),
     Meta(Option<MetaSource>),
     Summary(Vec<MetaSummary>),
+    Imported {
+        /// The new sheet, for `CsvTarget::NewSheet`.
+        sheet: Option<SheetId>,
+        rows: usize,
+        rejected: usize,
+    },
     Txns {
         txns: Vec<TxnInfo>,
         /// Ids currently on the undo stack (bottom first).

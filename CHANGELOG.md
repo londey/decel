@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Phase 8 — CSV
+
+#### Added
+
+- `decel-io`: CSV read/write with delimiter auto-detection, header rows, UTF-8 (BOM) and
+  Windows-1252 decoding, and configurable quoting and line endings.
+- `ImportCsv` (new sheet, or at a cell through `parse`/`validate`) and `ExportCsv` (raw values
+  or displayed text), each one transaction; `Op::AddSheet` can take an explicit id so a new
+  sheet and its cells commit together.
+- Import/export panels in the title menu, drag-and-drop of `.csv`/`.decel` files, and
+  `decel file.csv`.
+- Round-trip test (ints, floats, bools, strings with quotes/commas/newlines) and a 100 k-row
+  import test (~0.9 s import, ~0.8 s undo in release).
+
 ### Phase 9 — Charts
 
 #### Added

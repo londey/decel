@@ -588,6 +588,53 @@ impl Actor {
                 };
                 self.set_cells(label, cells, Vec::new())
             }
+            Command::ImportCsv {
+                path,
+                target,
+                options,
+            } => self.import_csv(&path, target, &options),
+            Command::ExportCsv {
+                path,
+                sheet,
+                rect,
+                raw,
+                options,
+            } => {
+                let engine = &mut self.doc()?.engine;
+                let s = engine
+                    .workbook()
+                    .sheet(sheet)
+                    .ok_or_else(|| CommandError::Failed("no such sheet".into()))?;
+                let rect = match rect {
+                    Some(r) => r,
+                    None => match (s.cells.last_row(), s.cells.last_col()) {
+                        (Some(r), Some(c)) => Rect::new(0, 0, r, c),
+                        _ => return Ok(Reply::Done),
+                    },
+                };
+                let mut rows = Vec::with_capacity(rect.rows() as usize);
+                for r in rect.r1..=rect.r2 {
+                    let mut row = Vec::with_capacity(rect.cols() as usize);
+                    for c in rect.c1..=rect.c2 {
+                        let a = CellAddr::new(sheet, r, c);
+                        row.push(if raw {
+                            engine
+                                .workbook()
+                                .cell(a)
+                                .and_then(|c| c.raw.as_ref())
+                                .map(|v| v.edit_text())
+                                .unwrap_or_default()
+                        } else {
+                            engine.display(a).text
+                        });
+                    }
+                    rows.push(row);
+                }
+                let text = decel_io::write(&rows, &options)
+                    .map_err(|e| CommandError::Failed(e.to_string()))?;
+                std::fs::write(&path, text).map_err(|e| CommandError::Failed(e.to_string()))?;
+                Ok(Reply::Done)
+            }
             Command::NewMeta { targets } => {
                 let wb = self.doc()?.engine.workbook();
                 let mut n = 1u32;
@@ -724,6 +771,7 @@ impl Actor {
                 Op::AddSheet {
                     name,
                     position: None,
+                    id: None,
                 },
             ),
             Command::RenameSheet { id, name } => self.op(
@@ -780,6 +828,92 @@ impl Actor {
                 Ok(Reply::Done)
             }
             Command::Shutdown => Ok(Reply::Done),
+        }
+    }
+
+    fn import_csv(
+        &mut self,
+        path: &Path,
+        target: crate::protocol::CsvTarget,
+        options: &decel_io::ImportOptions,
+    ) -> Ack {
+        use crate::protocol::CsvTarget;
+        let bytes = std::fs::read(path).map_err(|e| CommandError::Failed(e.to_string()))?;
+        let table =
+            decel_io::read(&bytes, options).map_err(|e| CommandError::Failed(e.to_string()))?;
+        let file = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "CSV".into());
+        let doc = self.doc()?;
+        let mut cells = Vec::new();
+        let mut rejected = 0;
+        let header_rows = usize::from(table.header.is_some());
+        let mut ops = Vec::new();
+        let (sheet, origin) = match target {
+            CsvTarget::NewSheet => {
+                let stem = path
+                    .file_stem()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "CSV".into());
+                let wb = doc.engine.workbook();
+                let mut name = stem.trim().to_string();
+                let mut n = 2;
+                while wb.sheet_by_name(&name).is_some() {
+                    name = format!("{} {n}", stem.trim());
+                    n += 1;
+                }
+                let id = doc.store.next_sheet_id()?;
+                ops.push(Op::AddSheet {
+                    name,
+                    position: None,
+                    id: Some(id),
+                });
+                (Some(id), CellAddr::new(id, 0, 0))
+            }
+            CsvTarget::At(a) => (None, a),
+        };
+        if let Some(h) = &table.header {
+            for (c, field) in h.iter().enumerate() {
+                if let Some(a) = origin.offset(0, c as i64)
+                    && !field.is_empty()
+                {
+                    cells.push((a, Cell::value(decel_model::Value::str(field.as_str()))));
+                }
+            }
+        }
+        for (r, row) in table.rows.iter().enumerate() {
+            for (c, field) in row.iter().enumerate() {
+                let Some(a) = origin.offset((r + header_rows) as i64, c as i64) else {
+                    continue;
+                };
+                if sheet.is_some() {
+                    if let Some(v) = decel_model::parse_default(field) {
+                        cells.push((a, Cell::value(v)));
+                    }
+                } else {
+                    match doc.engine.enter_text(a, field) {
+                        Ok(cell) => cells.push((a, cell)),
+                        Err(_) => rejected += 1,
+                    }
+                }
+            }
+        }
+        let rows = table.rows.len();
+        ops.push(Op::SetCells(cells));
+        let input = TxnInput {
+            label: format!("Import {file}"),
+            ops,
+            metas: Vec::new(),
+        };
+        match self.commit(input)? {
+            Reply::Committed { .. } | Reply::NoChange => Ok(Reply::Imported {
+                sheet,
+                rows,
+                rejected,
+            }),
+            other => Ok(other),
         }
     }
 

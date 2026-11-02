@@ -16,6 +16,9 @@ pub enum Op {
     AddSheet {
         name: String,
         position: Option<u32>,
+        /// A specific id (from `Store::next_sheet_id`), so later ops in the
+        /// same txn can refer to the new sheet. `None` allocates one.
+        id: Option<SheetId>,
     },
     RenameSheet {
         id: SheetId,

@@ -1365,6 +1365,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "decel-engine",
+ "decel-io",
  "decel-model",
  "decel-store",
  "directories",
@@ -1393,6 +1394,7 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "crossbeam-channel",
+ "decel-io",
  "decel-model",
  "decel-store",
  "mlua",

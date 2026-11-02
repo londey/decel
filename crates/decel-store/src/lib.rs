@@ -51,6 +51,8 @@ pub enum StoreError {
     BadSheetName(String),
     #[error("a sheet named {0:?} already exists")]
     DuplicateSheetName(String),
+    #[error("sheet id {0} is already used")]
+    SheetIdInUse(SheetId),
     #[error("a workbook must keep at least one sheet")]
     LastSheet,
     #[error("unknown metatable {0}")]
@@ -683,6 +685,27 @@ impl Store {
             .transpose()?)
     }
 
+    /// The id the next `AddSheet` without an explicit id would get.
+    pub fn next_sheet_id(&self) -> Result<SheetId, StoreError> {
+        let stored: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM workbook WHERE key = ?1",
+                [KEY_NEXT_SHEET],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let max: Option<u32> = self
+            .conn
+            .query_row("SELECT max(id) FROM sheets", [], |r| r.get(0))?;
+        Ok(SheetId(
+            stored
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(1)
+                .max(max.map_or(1, |m| m + 1)),
+        ))
+    }
+
     /// Copies committed WAL pages into the main database file. Call when
     /// idle; it never blocks readers and does nothing for in-memory stores.
     pub fn checkpoint(&mut self) -> Result<(), StoreError> {
@@ -1204,6 +1227,8 @@ fn canonical_order(changes: Vec<Change>) -> Vec<Change> {
 struct Plan {
     changes: Vec<Change>,
     cell_index: HashMap<CellAddr, usize>,
+    /// Sheets created in this txn: their cells are known to be empty.
+    new_sheets: std::collections::HashSet<SheetId>,
 }
 
 impl Plan {
@@ -1311,7 +1336,11 @@ fn plan_op(tx: &Transaction<'_>, op: Op, plan: &mut Plan) -> Result<(), StoreErr
                         return Err(StoreError::UnknownMeta(h));
                     }
                 }
-                let before = read_cell(conn, addr)?;
+                let before = if plan.new_sheets.contains(&addr.sheet) {
+                    Cell::EMPTY
+                } else {
+                    read_cell(conn, addr)?
+                };
                 plan.push(
                     conn,
                     Change::Cell {
@@ -1322,10 +1351,22 @@ fn plan_op(tx: &Transaction<'_>, op: Op, plan: &mut Plan) -> Result<(), StoreErr
                 )?;
             }
         }
-        Op::AddSheet { name, position } => {
+        Op::AddSheet { name, position, id } => {
             check_sheet_name(conn, &name, None)?;
             let mut order = read_sheets(conn)?;
-            let id = SheetId(next_id(conn, KEY_NEXT_SHEET, "SELECT max(id) FROM sheets")?);
+            let next = next_id(conn, KEY_NEXT_SHEET, "SELECT max(id) FROM sheets")?;
+            let id = match id {
+                // Must be unused: never below the counter.
+                Some(id) if id.0 >= next => {
+                    conn.execute(
+                        "INSERT OR REPLACE INTO workbook(key, value) VALUES (?1, ?2)",
+                        params![KEY_NEXT_SHEET, (id.0 + 1).to_string()],
+                    )?;
+                    id
+                }
+                Some(id) => return Err(StoreError::SheetIdInUse(id)),
+                None => SheetId(next),
+            };
             let pos = position
                 .unwrap_or(order.len() as u32)
                 .min(order.len() as u32);
@@ -1358,6 +1399,7 @@ fn plan_op(tx: &Transaction<'_>, op: Op, plan: &mut Plan) -> Result<(), StoreErr
                     after: Some(rec),
                 },
             )?;
+            plan.new_sheets.insert(id);
         }
         Op::RenameSheet { id, name } => {
             let rec = require_sheet(conn, id)?;

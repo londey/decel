@@ -559,3 +559,163 @@ fn colors_summary_new_meta_and_text_paste() {
     assert_eq!(reopened[&b_src.hash()], 1);
     assert_eq!(reopened.len(), 4);
 }
+
+#[test]
+fn csv_raw_round_trip_into_new_sheet() {
+    use decel_engine::protocol::CsvTarget;
+    let dir = tempfile::tempdir().unwrap();
+    let mut cl = Client::new();
+    cl.call(Command::New { path: None }).unwrap();
+    let values = [
+        Value::Int(-42),
+        Value::Int(i64::MAX),
+        Value::Num(0.1),
+        Value::Num(3.0),
+        Value::Num(-2.5e-300),
+        Value::Bool(true),
+        Value::str("plain"),
+        Value::str("with, comma"),
+        Value::str("with \"quotes\""),
+        Value::str("multi\nline"),
+        Value::str("42"),
+        Value::str("'leading quote"),
+    ];
+    let cells = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (a(i as u32 / 3, i as u32 % 3), Cell::value(v.clone())))
+        .collect();
+    cl.call(Command::SetCells {
+        label: "v".into(),
+        cells,
+    })
+    .unwrap();
+    let path = dir.path().join("out.csv");
+    cl.call(Command::ExportCsv {
+        path: path.clone(),
+        sheet: S1,
+        rect: None,
+        raw: true,
+        options: Default::default(),
+    })
+    .unwrap();
+    let Reply::Imported {
+        sheet: Some(new),
+        rows,
+        rejected,
+    } = cl
+        .call(Command::ImportCsv {
+            path,
+            target: CsvTarget::NewSheet,
+            options: Default::default(),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!((rows, rejected), (4, 0));
+    let Reply::Values(got) = cl
+        .call(Command::Values {
+            sheet: new,
+            rect: Rect::new(0, 0, 10, 10),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    let got: Vec<Value> = got.into_iter().map(|(_, v)| v).collect();
+    assert_eq!(got, values);
+    // One step to undo the whole import (sheet included).
+    cl.call(Command::Undo).unwrap();
+    assert!(!cl.sheets.iter().any(|(id, _)| *id == new));
+}
+
+#[test]
+fn csv_import_at_cell_uses_parse_hooks() {
+    use decel_engine::protocol::CsvTarget;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("in.csv");
+    std::fs::write(&path, "h1;h2\n2;3\n500;4\n").unwrap();
+    let mut cl = Client::new();
+    cl.call(Command::New { path: None }).unwrap();
+    cl.call(Command::SetMeta {
+        targets: (1..3).map(|r| a(r, 0)).collect(),
+        source: Some(
+            MetaSource::default()
+                .with("parse", "return tonumber(text) * 10")
+                .with(
+                    "validate",
+                    "if v > 100 then return false, 'big' end return true",
+                ),
+        ),
+        mode: MetaEditMode::Cow,
+    })
+    .unwrap();
+    let r = cl
+        .call(Command::ImportCsv {
+            path,
+            target: CsvTarget::At(a(0, 0)),
+            options: decel_io::ImportOptions {
+                header: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    assert!(matches!(
+        r,
+        Reply::Imported {
+            sheet: None,
+            rows: 2,
+            rejected: 1
+        }
+    ));
+    let Reply::Values(got) = cl
+        .call(Command::Values {
+            sheet: S1,
+            rect: Rect::new(0, 0, 2, 1),
+        })
+        .unwrap()
+    else {
+        panic!()
+    };
+    let map: HashMap<CellAddr, Value> = got.into_iter().collect();
+    assert_eq!(map[&a(0, 0)], Value::str("h1"));
+    assert_eq!(map[&a(1, 0)], Value::Int(20));
+    assert_eq!(map[&a(1, 1)], Value::Int(3));
+    // 500 was rejected by validate: the cell keeps its metatable and no value.
+    assert_eq!(map[&a(2, 0)], Value::Nil);
+}
+
+/// 100 k rows must import in under 2 s and undo in one step (run in release:
+/// `cargo nextest run --release -p decel-engine --run-ignored all csv_import_100k`).
+#[test]
+#[ignore]
+fn csv_import_100k_rows() {
+    use decel_engine::protocol::CsvTarget;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.csv");
+    let mut text = String::with_capacity(4_000_000);
+    for r in 0..100_000 {
+        text.push_str(&format!("{r},{}.5,item {r}\n", r * 2));
+    }
+    std::fs::write(&path, text).unwrap();
+    let mut cl = Client::new();
+    cl.call(Command::New {
+        path: Some(dir.path().join("big.decel")),
+    })
+    .unwrap();
+    let start = Instant::now();
+    let r = cl
+        .call(Command::ImportCsv {
+            path,
+            target: CsvTarget::NewSheet,
+            options: Default::default(),
+        })
+        .unwrap();
+    let took = start.elapsed();
+    assert!(matches!(r, Reply::Imported { rows: 100_000, .. }));
+    assert!(took < Duration::from_secs(2), "import took {took:?}");
+    let start = Instant::now();
+    cl.call(Command::Undo).unwrap();
+    eprintln!("import {took:?}, undo {:?}", start.elapsed());
+}

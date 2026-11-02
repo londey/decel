@@ -422,6 +422,7 @@ impl Workspace {
             out.push(
                 div()
                     .id(SharedString::from(format!("chart-{}", id.0)))
+                    .occlude()
                     .absolute()
                     .left(b.origin.x - g.origin.x)
                     .top(b.origin.y - g.origin.y)
@@ -960,48 +961,47 @@ impl Element for ChartElement {
             ));
             // X mapping.
             let n = d.categories.len().max(1);
-            let (xmap, xlabels): (XMap, Vec<(Pixels, String)>) =
-                match d.spec.kind {
-                    ChartKind::Scatter => {
-                        let xs = d.series.iter().flat_map(|s| s.points.iter().map(|p| p.0));
-                        let (xl, xh) = xs.fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| {
-                            (a.min(x), b.max(x))
-                        });
-                        let (xl, xh) = if xl.is_finite() { (xl, xh) } else { (0.0, 1.0) };
-                        let (x0, x1, xstep) = nice_ticks(xl, xh, 5);
-                        let pw = plot.size.width;
-                        let ox = plot.origin.x;
-                        let map = move |x: f64| ox + pw * ((x - x0) / (x1 - x0)) as f32;
-                        let mut labels = Vec::new();
-                        let mut v = x0;
-                        while v <= x1 + xstep * 0.5 {
-                            labels.push((map(v), tick_label(v, xstep)));
-                            v += xstep;
-                        }
-                        (Box::new(map), labels)
+            let (xmap, xlabels): (XMap, Vec<(Pixels, String)>) = match d.spec.kind {
+                ChartKind::Scatter => {
+                    let xs = d.series.iter().flat_map(|s| s.points.iter().map(|p| p.0));
+                    let (xl, xh) = xs.fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| {
+                        (a.min(x), b.max(x))
+                    });
+                    let (xl, xh) = if xl.is_finite() { (xl, xh) } else { (0.0, 1.0) };
+                    let (x0, x1, xstep) = nice_ticks(xl, xh, 5);
+                    let pw = plot.size.width;
+                    let ox = plot.origin.x;
+                    let map = move |x: f64| ox + pw * ((x - x0) / (x1 - x0)) as f32;
+                    let mut labels = Vec::new();
+                    let mut v = x0;
+                    while v <= x1 + xstep * 0.5 {
+                        labels.push((map(v), tick_label(v, xstep)));
+                        v += xstep;
                     }
-                    _ => {
-                        let slot = plot.size.width / n as f32;
-                        let ox = plot.origin.x;
-                        let map = move |x: f64| ox + slot * (x as f32 + 0.5);
-                        // Thin labels so they don't overlap.
-                        let widest = d
-                            .categories
-                            .iter()
-                            .map(|t| label(window, t, self.muted, true).width())
-                            .fold(px(0.), |a, b| a.max(b));
-                        let every =
-                            ((f32::from(widest + px(8.)) / f32::from(slot)).ceil() as usize).max(1);
-                        let labels = d
-                            .categories
-                            .iter()
-                            .enumerate()
-                            .filter(|(i, _)| i % every == 0)
-                            .map(|(i, t)| (map(i as f64), t.clone()))
-                            .collect();
-                        (Box::new(map), labels)
-                    }
-                };
+                    (Box::new(map), labels)
+                }
+                _ => {
+                    let slot = plot.size.width / n as f32;
+                    let ox = plot.origin.x;
+                    let map = move |x: f64| ox + slot * (x as f32 + 0.5);
+                    // Thin labels so they don't overlap.
+                    let widest = d
+                        .categories
+                        .iter()
+                        .map(|t| label(window, t, self.muted, true).width())
+                        .fold(px(0.), |a, b| a.max(b));
+                    let every =
+                        ((f32::from(widest + px(8.)) / f32::from(slot)).ceil() as usize).max(1);
+                    let labels = d
+                        .categories
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| i % every == 0)
+                        .map(|(i, t)| (map(i as f64), t.clone()))
+                        .collect();
+                    (Box::new(map), labels)
+                }
+            };
             for (x, t) in &xlabels {
                 let l = label(window, t, self.muted, true);
                 let _ = l.paint(

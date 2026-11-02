@@ -214,6 +214,8 @@ pub struct Workspace {
     pub(crate) switch_to_name: Option<String>,
     pub(crate) dock_tab: DockTab,
     pub(crate) charts: crate::charts::ChartsState,
+    pub(crate) csv_import: Option<crate::csv_ui::ImportDialog>,
+    pub(crate) csv_export: Option<crate::csv_ui::ExportDialog>,
     pub(crate) history: crate::history::HistoryState,
     pub(crate) dock_sync_pending: bool,
     pub(crate) peek: bool,
@@ -344,6 +346,8 @@ impl Workspace {
             switch_to_name: None,
             dock_tab: DockTab::Metatable,
             charts: Default::default(),
+            csv_import: None,
+            csv_export: None,
             history: Default::default(),
             dock_sync_pending: false,
             peek: false,
@@ -368,7 +372,17 @@ impl Workspace {
                 cx.notify();
             }
         }));
+        let is_csv = open.as_ref().is_some_and(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "csv" | "tsv" | "txt"))
+        });
         match open {
+            // A CSV on the command line imports into a new workbook.
+            Some(p) if is_csv && p.exists() => {
+                this.new_file(None, window, cx);
+                this.open_import_dialog(p, cx);
+            }
             Some(p) if p.exists() => this.open_path(p, false, window, cx),
             Some(p) => this.new_file(Some(p), window, cx),
             None => this.new_file(None, window, cx),
@@ -1844,6 +1858,8 @@ impl Workspace {
                 .hover(|s| s.bg(theme.secondary))
         };
         let mut list = div()
+            .id("file-menu")
+            .occlude()
             .absolute()
             .top(px(34.))
             .left(px(8.))
@@ -1877,6 +1893,22 @@ impl Workspace {
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.show_recent = false;
                         this.prompt_save_as(window, cx);
+                    })),
+            )
+            .child(
+                item("menu-import".into())
+                    .child("Import CSV…")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.show_recent = false;
+                        this.prompt_import_csv(window, cx);
+                    })),
+            )
+            .child(
+                item("menu-export".into())
+                    .child("Export CSV…")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.show_recent = false;
+                        this.prompt_export_csv(window, cx);
                     })),
             )
             .child(
@@ -2097,6 +2129,15 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &AddSheet, _, cx| this.add_sheet(cx)))
             .on_action(
+                cx.listener(|this, _: &ImportCsv, window, cx| this.prompt_import_csv(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ExportCsv, window, cx| this.prompt_export_csv(window, cx)),
+            )
+            .on_drop(cx.listener(|this, p: &gpui::ExternalPaths, window, cx| {
+                this.on_drop_paths(p, window, cx)
+            }))
+            .on_action(
                 cx.listener(|this, _: &InsertCells, _, cx| this.structure_at_selection(false, cx)),
             )
             .on_action(
@@ -2259,5 +2300,6 @@ impl Render for Workspace {
             )
             .child(self.render_tabs(cx))
             .when_some(self.render_recent(cx), |d, r| d.child(r))
+            .when_some(self.render_csv_dialog(cx), |d, r| d.child(r))
     }
 }

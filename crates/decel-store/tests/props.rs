@@ -95,6 +95,7 @@ fn concrete(wb: &Workbook, op: &AOp) -> Option<TxnInput> {
         AOp::AddSheet(n, p) => Op::AddSheet {
             name: NAMES[usize::from(*n)].into(),
             position: p.map(|p| u32::from(p % 4)),
+            id: None,
         },
         AOp::Rename(s, n) => Op::RenameSheet {
             id: pick_sheet(wb, *s),

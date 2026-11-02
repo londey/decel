@@ -7,6 +7,7 @@
 mod actions;
 mod charts;
 mod client;
+mod csv_ui;
 mod dock;
 mod grid;
 mod history;

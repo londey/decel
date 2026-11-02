@@ -15,6 +15,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 decel-engine.workspace = true
+decel-io.workspace = true
 decel-model.workspace = true
 decel-store.workspace = true
 directories.workspace = true

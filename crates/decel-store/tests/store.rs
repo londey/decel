@@ -152,6 +152,7 @@ fn sheet_ops_and_undo() {
         .apply(TxnInput::new("add").op(Op::AddSheet {
             name: "Inputs".into(),
             position: Some(0),
+            id: None,
         }))
         .unwrap()
         .unwrap();
@@ -208,6 +209,7 @@ fn move_sheet_reorders() {
         s.apply(TxnInput::new("add").op(Op::AddSheet {
             name: n.into(),
             position: None,
+            id: None,
         }))
         .unwrap();
     }

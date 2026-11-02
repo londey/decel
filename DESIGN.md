@@ -538,6 +538,14 @@ The config lives at `$XDG_CONFIG_HOME/decel/config.toml` on Linux and `%APPDATA%
 
 ---
 
+## 8.8 CSV (Phase 8)
+
+- **Import** goes to a new sheet named after the file, or over existing cells at the selection. A new sheet uses the default parser. Importing at a selection runs each target cell's `parse` and `validate`; rejected values are counted and left unchanged. A header row is written as plain text. The whole import is one transaction, including the new sheet.
+- **Export** writes raw values in edit form (`Value::edit_text`, which round-trips through the default parser) or displayed text.
+- **Delimiter detection** compares field-count consistency over the first 50 records. Ties go to tab, then `;`, then `|`, then `,`, so European `1,5;2,25` reads as semicolon-separated.
+- **Encoding:** UTF-8 (BOM stripped). With `Auto`, invalid UTF-8 falls back to Windows-1252.
+- **Blank lines:** a blank line in the middle of a file becomes one row with a single empty field. Blank lines at the start and end are dropped.
+
 ## 9. Architecture
 
 ### 9.1 Crates

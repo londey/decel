@@ -147,3 +147,12 @@ Setup: open `decel-cli demo` output. Select 1,5:21,6 (Amount and Running total w
 - [ ] Text in a series range is skipped, and "N non-numeric skipped" appears in the corner.
 - [ ] Inserting rows or columns above or left of the chart moves the chart and its source ranges with the data. Deleting rows inside a series shrinks it.
 - [ ] Every chart edit can be undone. Charts survive close and reopen, and Save As.
+
+## Phase 8 — CSV
+
+- [ ] Title menu → **Import CSV…** (or drop a `.csv` on the window, or run `decel file.csv`) shows the options: into a new sheet or at the selection, header row, delimiter (auto, `,` `;` Tab `|`) and encoding (auto, UTF-8, Windows-1252).
+- [ ] A semicolon file with quoted fields containing `;` and line breaks imports correctly into a new sheet named after the file.
+- [ ] A Windows-1252 file containing `é` and `€` shows those characters. A UTF-8 file with a BOM has no stray character in 1,1.
+- [ ] Importing at a selection over latitude cells runs their `parse`/`validate`; rejected values are reported in the status bar and left unchanged.
+- [ ] Undo removes the entire import (including the new sheet) in one step. A 100 000-row file imports in under 2 s.
+- [ ] **Export CSV…** writes raw values (edit form) or displayed text, for the whole sheet or the selection, with the chosen delimiter and quoting. Exporting raw values and importing them again gives identical values.

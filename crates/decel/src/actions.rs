@@ -51,6 +51,8 @@ actions!(
         InsertCells,
         DeleteCells,
         InsertChart,
+        ImportCsv,
+        ExportCsv,
     ]
 );
 
