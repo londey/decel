@@ -8,6 +8,7 @@ architecture.pdf
 !.claude/commands/
 !.claude/skills/
 .claude/skills/synced
+.claude/skills/.trash
 /target
 
 # Generated example workbooks (see examples/README.md)
